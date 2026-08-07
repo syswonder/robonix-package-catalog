@@ -37,6 +37,10 @@ packages:
     repo: https://github.com/syswonder/primitive-agilex-piper-description-rbnx
   - name: robonix.primitive.agilex.piper.handeye
     repo: https://github.com/syswonder/primitive-agilex-piper-handeye-rbnx
+  - name: robonix.primitive.wheeltec.r550.chassis
+    repo: https://github.com/syswonder/primitive-wheeltec-r550-chassis-rbnx
+  - name: robonix.primitive.wheeltec.lslidar_n10p.lidar
+    repo: https://github.com/syswonder/primitive-wheeltec-lslidar_n10p-lidar-rbnx
   - name: robonix.service.object_detect
     repo: https://github.com/syswonder/service-object-detect-rbnx
   - name: robonix.service.grasp_pose
