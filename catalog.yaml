@@ -95,6 +95,8 @@ packages:
     repo: https://github.com/QingFeng34048/Robonix-Skill-openvla_finetune
 
 robots:
+  - name: robonix.robot.deep_robotics.lynx_s10
+    repo: https://github.com/syswonder/robot-deep_robotics-lynx_s10
   - name: robonix.robot.agilex.ranger_mini_v3
     repo: https://github.com/syswonder/robot-agilex-ranger_mini_v3
   - name: robonix.robot.deep_robotics.lite3
