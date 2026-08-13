@@ -1,4 +1,8 @@
 packages:
+  - name: robonix.skill.internvla_navigation
+    repo: https://github.com/syswonder/skill-internvla-navigation-rbnx
+  - name: robonix.primitive.lynx_chassis
+    repo: https://github.com/syswonder/primitive-deep-robotics-lynx-chassis-rbnx
   - name: robonix.primitive.audio.alsa
     repo: https://github.com/syswonder/primitive-audio-driver-rbnx
   - name: robonix.primitive.audio.client_bridge
