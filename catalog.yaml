@@ -117,6 +117,8 @@ robots:
     repo: https://github.com/syswonder/robot-wowrobo-roboarm
   - name: robonix.robot.syswonder.minecraft_bot
     repo: https://github.com/syswonder/robot-syswonder-minecraft_bot
+  - name: robonix.robot.pal_robotics.tiago_webots
+    repo: https://github.com/syswonder/robot-pal_robotics-tiago_webots
   - name: robonix.robot.beingbeyond.d1
     repo: https://github.com/syswonder/robot-beingbeyond-d1
   - name: robonix.robot.linkerbot.linker_hand_o6
