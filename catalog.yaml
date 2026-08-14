@@ -123,3 +123,5 @@ robots:
     repo: https://github.com/syswonder/robot-linkerbot-linker_hand_o6
   - name: robonix.robot.yobotics.y20w
     repo: https://github.com/chenx1118/robot-yobotics-y20w
+  - name: robonix.robot.hantewin.benben
+    repo: https://github.com/syswonder/robot-hantewin-benben
