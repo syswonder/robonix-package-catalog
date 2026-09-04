@@ -129,3 +129,8 @@ robots:
     repo: https://github.com/syswonder/robot-hantewin-benben
   - name: robonix.robot.agilex.ranger_with_piper_mujoco
     repo: https://github.com/syswonder/robot-agilex-ranger_with_piper_mujoco
+
+  - name: robonix.robot.somaos.cognitive_brain_humanoid_sim
+    repo: https://github.com/13717930620-alt/somaos-cognitive-brain-so100
+  - name: robonix.robot.somaos_next.motor_brain_so100
+    repo: https://github.com/13717930620-alt/somaos-next-motor-brain-so100
