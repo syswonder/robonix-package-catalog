@@ -45,6 +45,8 @@ packages:
     repo: https://github.com/syswonder/primitive-agilex-piper-description-rbnx
   - name: robonix.primitive.agilex.piper.handeye
     repo: https://github.com/syswonder/primitive-agilex-piper-handeye-rbnx
+  - name: robonix.primitive.piper_with_linkerhand.description
+    repo: https://github.com/cloud666666666/primitive-piper_with_linkerhand-description-rbnx
   - name: robonix.primitive.wheeltec.r550_minitank.chassis
     repo: https://github.com/syswonder/primitive-wheeltec-r550-chassis-rbnx
   - name: robonix.primitive.wheeltec.lslidar_n10p.lidar
@@ -57,6 +59,14 @@ packages:
     repo: https://github.com/syswonder/service-piper-moveit-rbnx
   - name: robonix.service.roboarm.ik
     repo: https://github.com/syswonder/service-roboarm-ik-rbnx
+  - name: robonix.service.piper_with_linkerhand.arm_ik
+    repo: https://github.com/cloud666666666/service-piper_with_linkerhand-ik-rbnx
+  - name: robonix.service.piper_with_linkerhand.grasp_pose
+    repo: https://github.com/cloud666666666/service-piper_with_linkerhand-grasp-pose-rbnx
+  - name: robonix.service.piper_with_linkerhand.object_detect
+    repo: https://github.com/cloud666666666/service-piper_with_linkerhand-object-detect-rbnx
+  - name: robonix.skill.pick.flat_grasp
+    repo: https://github.com/cloud666666666/skill-piper_with_linkerhand-flat-grasp-rbnx
   - name: robonix.skill.pick.vertical_grasp
     repo: https://github.com/syswonder/skill-pick-vertical-grasp-rbnx
   - name: robonix.skill.vla.openvla
@@ -95,6 +105,8 @@ packages:
     repo: https://github.com/syswonder/skill-dual-piper-transfer-rbnx
   - name: robonix.primitive.linkerbot.linker_hand_o6.hand
     repo: https://github.com/syswonder/primitive-linkerbot-linker_hand_o6-hand-rbnx
+  - name: robonix.primitive.linkerhand.o6.hand
+    repo: https://github.com/cloud666666666/primitive-piper_with_linkerhand-hand-rbnx
   - name: robonix.skill.deployment_data_collection
     repo: https://github.com/QingFeng34048/Robonix-Skill-dataset_collect
   - name: robonix.skill.deployment_data_coversion
