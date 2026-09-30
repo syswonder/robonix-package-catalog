@@ -112,6 +112,12 @@ packages:
     repo: https://github.com/syswonder/skill-jaka-rbnx
   - name: robonix.primitive.orbbec.camera
     repo: https://github.com/syswonder/primitive-orbbec-camera-rbnx
+  - name: robonix.primitive.linkerhand.o6.hand
+    repo: https://github.com/syswonder/primitive-linkerhand-o6-hand-rbnx
+  - name: robonix.primitive.piper_with_linkerhand.description
+    repo: https://github.com/syswonder/primitive-agilex-piper_with_linkerhand-description-rbnx
+  - name: robonix.skill.pick.flat_grasp
+    repo: https://github.com/syswonder/skill-pick-flat-grasp-rbnx
 robots:
   - name: robonix.robot.mirrorme.bpx
     repo: https://github.com/mirrormerobotics/robot-mirrorme-bpx
@@ -151,3 +157,5 @@ robots:
     repo: https://github.com/syswonder/robot-aubo-i5h
   - name: robonix.robot.jaka.mini
     repo: https://github.com/syswonder/robot-jaka-mini
+  - name: robonix.robot.agilex.piper_linkerhand_mujoco
+    repo: https://github.com/syswonder/robot-agilex-piper_with_linkerhand_mujoco
