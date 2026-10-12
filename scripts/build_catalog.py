@@ -432,6 +432,83 @@ def collect_capabilities(package_name: str, manifest: dict) -> list[str]:
     return cap_names
 
 
+KINDS = ("primitive", "service", "skill")
+
+
+def layout_problems(kind: str, cap_names: list[str], root_caps: list[str] | None,
+                    manifest_path: str) -> list[dict]:
+    """How a package's contracts break the one-kind-per-package layout.
+
+    A package is of one kind, named by its catalog name, and may provide any
+    number of that kind, one contract namespace each: seven Go2 action skills,
+    or the chassis and IMU one driver board reports. It must not mix kinds; a
+    service a skill needs is a package of its own. When the catalog reads a manifest other
+    than package_manifest.yaml, both must declare the same capabilities, or
+    the catalog and the Hub show different packages. Shared contracts outside
+    the three kinds (robonix/lifecycle/driver) are not checked.
+    """
+    problems = []
+    if kind not in KINDS:
+        return problems
+    # Both manifests: a service left out of the catalog's manifest is still
+    # in the package.
+    declared = set(cap_names) | set(root_caps or [])
+    foreign = sorted({c.split("/")[1] for c in declared
+                      if c.startswith("robonix/") and c.count("/") >= 2
+                      and c.split("/")[1] in KINDS and c.split("/")[1] != kind})
+    for other in foreign:
+        examples = sorted({"/".join(c.split("/")[:3]) for c in declared
+                           if c.split("/")[1:2] == [other]})
+        problems.append({
+            "type": "mixed_kinds",
+            "reason": f"a {kind} package declares {other} contracts ({', '.join(examples)}); "
+                      f"put the {other} in its own package",
+        })
+    if root_caps is not None and set(root_caps) != set(cap_names):
+        only_root = len(set(root_caps) - set(cap_names))
+        only_here = len(set(cap_names) - set(root_caps))
+        problems.append({
+            "type": "manifest_mismatch",
+            "reason": f"{manifest_path} and package_manifest.yaml declare different capabilities "
+                      f"({only_root} only in package_manifest.yaml, {only_here} only in {manifest_path})",
+        })
+    return problems
+
+
+def group_capabilities(kind: str, cap_names: list[str]) -> list[dict]:
+    """The skills (services, primitives) a package provides, one per contract
+    namespace: robonix/skill/explore/{explore,status,cancel} is one skill,
+    the Go2 package's seven robonix/skill/unitree_go2_<action>/... are seven.
+
+    A capability counts as one interface; a namespace of the package's own
+    kind groups the interfaces of one skill. Contracts outside that kind (a
+    shared lifecycle driver) belong to no group.
+    """
+    groups: dict[str, list[str]] = {}
+    prefix = f"robonix/{kind}/"
+    for cap in cap_names:
+        if not cap.startswith(prefix):
+            continue
+        namespace = cap[len(prefix):].split("/", 1)[0]
+        if namespace:
+            groups.setdefault(prefix + namespace, []).append(cap)
+    return [{"namespace": ns, "capabilities": caps} for ns, caps in groups.items()]
+
+
+def provided_count(package: dict) -> int:
+    """How many skills (services, primitives) a package provides: one per
+    contract namespace, and at least one for a package that declares any."""
+    groups = provided_groups(package)
+    return len(groups) or (1 if package.get("capabilities") else 0)
+
+
+def provided_groups(package: dict) -> list[dict]:
+    """`provides` as built, or derived again for an entry read from cache."""
+    if "provides" in package:
+        return package["provides"] or []
+    return group_capabilities(package.get("kind", ""), package.get("capabilities", []))
+
+
 def collect_deploy_dependencies(package_name: str, manifest: dict) -> list[dict]:
     deps = []
     for section in ("primitive", "service", "skill"):
@@ -955,6 +1032,23 @@ def collect_entry(
         cap_names = collect_capabilities(name, manifest)
         deploy_dependencies = []
     kind = name.split(".")[1] if name.startswith("robonix.") and "." in name else ""
+    if catalog_type != "robot":
+        root_caps = None
+        if manifest_path != "package_manifest.yaml" and cached is None:
+            owner, _ = parse_repo(repo)
+            raw = load_remote_text(owner, repo_name, "package_manifest.yaml", branch, required=False)
+            try:
+                root_manifest = yaml.safe_load(raw) if raw else None
+            except yaml.YAMLError:
+                root_manifest = None
+            if isinstance(root_manifest, dict):
+                root_caps = collect_capabilities(name, root_manifest)
+        for problem in layout_problems(kind, cap_names, root_caps, manifest_path):
+            # A new or changed entry has to fix this before it is merged; an
+            # entry already in the catalog is listed with a warning.
+            if not allow_name_mismatch:
+                fail(f"{name}: {problem['reason']}")
+            catalog_warnings.append(problem)
     return {
         "name": name,
         "version": version,
@@ -971,6 +1065,7 @@ def collect_entry(
         "catalog_warnings": catalog_warnings,
         "manifest": manifest_path,
         "capabilities": cap_names,
+        "provides": group_capabilities(kind, cap_names),
         "deploy_dependencies": deploy_dependencies,
         "readme_url": f"{repo}/blob/{branch}/README.md",
         "preview_image_url": preview_image_url,
@@ -1258,7 +1353,13 @@ def entry_units(package: dict) -> tuple[int, str]:
         count = len(package.get("deploy_dependencies", []))
         return count, "dependency" if count == 1 else "dependencies"
     count = len(package.get("capabilities", []))
-    return count, "capability" if count == 1 else "capabilities"
+    unit = "capability" if count == 1 else "capabilities"
+    provided = provided_count(package)
+    if provided > 1:
+        # One package, several skills: name both counts so the row says how
+        # many skills it holds, not only how many interfaces.
+        return count, f"capabilities in {provided} {package['kind']}s"
+    return count, unit
 
 
 def entry_search_text(package: dict) -> str:
@@ -1495,6 +1596,9 @@ def render_home(public_dir: Path, generated_at: str, packages: list[dict]) -> No
     robot_entries = [p for p in packages if p.get("catalog_type") == "robot"]
     capability_total = sum(len(p.get("capabilities", [])) for p in package_entries)
     by_kind = {kind: [p for p in package_entries if p["kind"] == kind] for kind in KIND_ORDER}
+    # Counted in skills (services, primitives), not packages: one package can
+    # provide several, one per contract namespace.
+    provided_by_kind = {kind: sum(provided_count(p) for p in by_kind[kind]) for kind in KIND_ORDER}
 
     # Skills are the applications of the platform, so the homepage shows real
     # skill packages rather than a link to a filtered list.
@@ -1505,6 +1609,9 @@ def render_home(public_dir: Path, generated_at: str, packages: list[dict]) -> No
         slug = html.escape(package_slug(skill["name"]))
         count = len(skill.get("capabilities", []))
         unit = "capability" if count == 1 else "capabilities"
+        provided = provided_count(skill)
+        if provided > 1:
+            unit = f"{unit} · {provided} skills"
         skill_cards.append(
             f"""<div class="col">
             <a class="card card-link-block h-100 p-3 d-flex flex-column gap-2" href="packages/{slug}/">
@@ -1518,7 +1625,7 @@ def render_home(public_dir: Path, generated_at: str, packages: list[dict]) -> No
         skill_cards.append(
             f"""<div class="col">
             <a class="card card-link-block card-more h-100 d-flex flex-row align-items-center justify-content-center gap-2" href="packages/?kind=skill">
-              <span>All {len(skills)} skills</span>{ICON_ARROW}
+              <span>All {provided_by_kind['skill']} skills</span>{ICON_ARROW}
             </a>
           </div>"""
         )
@@ -1552,7 +1659,7 @@ def render_home(public_dir: Path, generated_at: str, packages: list[dict]) -> No
             <a class="card card-link-block h-100 p-3" href="packages/?kind={kind}">
               <div class="d-flex align-items-center justify-content-between gap-2 mb-2">
                 {kind_chip(kind)}
-                <span class="card-foot">{len(by_kind[kind])}</span>
+                <span class="card-foot">{provided_by_kind[kind]}</span>
               </div>
               <h3 class="h6 mb-2">{kind.capitalize()}s</h3>
               <p class="card-desc mb-3" style="-webkit-line-clamp: 4; line-clamp: 4">{html.escape(KIND_BLURB[kind])}</p>
@@ -1566,7 +1673,7 @@ def render_home(public_dir: Path, generated_at: str, packages: list[dict]) -> No
         rail_links.append(
             f'<a class="rail-link k-{kind}" href="packages/?kind={kind}">'
             f'{KIND_GLYPH[kind]}<span>{kind.capitalize()}s</span>'
-            f'<span class="n">{len(by_kind[kind])}</span></a>'
+            f'<span class="n">{provided_by_kind[kind]}</span></a>'
         )
     rail_links.append(
         f'<a class="rail-link k-robot" href="robots/">'
@@ -1603,7 +1710,7 @@ def render_home(public_dir: Path, generated_at: str, packages: list[dict]) -> No
       published by the community. Every entry is read straight from its own repository's
       manifest, so what you see here is what the package actually declares.</p>
       <div class="d-flex flex-wrap gap-4 mb-4">
-        <span class="hero-stat d-flex align-items-baseline gap-2"><b>{len(skills)}</b><span>skills</span></span>
+        <span class="hero-stat d-flex align-items-baseline gap-2"><b>{provided_by_kind['skill']}</b><span>skills</span></span>
         <span class="hero-stat d-flex align-items-baseline gap-2"><b>{len(package_entries)}</b><span>packages</span></span>
         <span class="hero-stat d-flex align-items-baseline gap-2"><b>{len(robot_entries)}</b><span>robot deployments</span></span>
         <span class="hero-stat d-flex align-items-baseline gap-2"><b>{capability_total}</b><span>declared capabilities</span></span>
@@ -2117,9 +2224,32 @@ def render_package_pages(public_dir: Path, generated_at: str, packages: list[dic
             provides_class = "dep-list"
             empty_note = "This deployment lists no packages."
         else:
-            provides_title = "Capabilities"
-            provides = "".join(f"<li>{html.escape(c)}</li>" for c in p["capabilities"])
-            provides_class = "cap-list"
+            groups = provided_groups(p)
+            if len(groups) > 1:
+                # Several skills in one package: one block per skill, its
+                # interfaces under it, so the page lists the skills by name.
+                provides_title = f"{len(groups)} {p['kind'].capitalize()}s"
+                grouped = set()
+                parts = []
+                for g in groups:
+                    grouped.update(g["capabilities"])
+                    caps = "".join(f"<li>{html.escape(c)}</li>" for c in g["capabilities"])
+                    parts.append(
+                        f'<li class="cap-group"><span class="cap-group-name">'
+                        f'{html.escape(g["namespace"].rsplit("/", 1)[-1])}</span>'
+                        f'<ul class="cap-list">{caps}</ul></li>'
+                    )
+                rest = [c for c in p["capabilities"] if c not in grouped]
+                if rest:
+                    caps = "".join(f"<li>{html.escape(c)}</li>" for c in rest)
+                    parts.append(f'<li class="cap-group"><span class="cap-group-name">other</span>'
+                                 f'<ul class="cap-list">{caps}</ul></li>')
+                provides = "".join(parts)
+                provides_class = "cap-groups"
+            else:
+                provides_title = "Capabilities"
+                provides = "".join(f"<li>{html.escape(c)}</li>" for c in p["capabilities"])
+                provides_class = "cap-list"
             empty_note = "This package declares no capability contracts."
         provides_block = (
             f'<ul class="{provides_class}">{provides}</ul>'

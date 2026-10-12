@@ -1091,3 +1091,44 @@ class DeploymentDependencyWarningTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ProvidedGroupsTest(unittest.TestCase):
+    def test_skills_are_counted_per_contract_namespace(self):
+        caps = [f"robonix/skill/unitree_go2_{a}/{op}" for a in ("hello", "dance")
+                for op in ("driver", "execute", "status", "cancel")]
+        caps.append("robonix/lifecycle/driver")
+        groups = BUILD_CATALOG.group_capabilities("skill", caps)
+        self.assertEqual([g["namespace"] for g in groups],
+                         ["robonix/skill/unitree_go2_hello", "robonix/skill/unitree_go2_dance"])
+        self.assertEqual(BUILD_CATALOG.provided_count({"kind": "skill", "capabilities": caps}), 2)
+
+    def test_one_namespace_is_one_skill(self):
+        caps = ["robonix/skill/explore/driver", "robonix/skill/explore/explore",
+                "robonix/skill/explore/explore/status", "robonix/skill/explore/explore/cancel"]
+        self.assertEqual(BUILD_CATALOG.provided_count({"kind": "skill", "capabilities": caps}), 1)
+
+
+
+class LayoutProblemsTest(unittest.TestCase):
+    def test_service_in_a_skill_package_is_reported(self):
+        caps = ["robonix/skill/unitree_go2_hello/execute",
+                "robonix/service/unitree_go2_sport_runtime/execute",
+                "robonix/lifecycle/driver"]
+        problems = BUILD_CATALOG.layout_problems("skill", caps, None, "package_manifest.yaml")
+        self.assertEqual([p["type"] for p in problems], ["mixed_kinds"])
+
+    def test_several_of_one_kind_are_fine(self):
+        for kind in ("skill", "service", "primitive"):
+            caps = [f"robonix/{kind}/a/execute", f"robonix/{kind}/b/execute"]
+            self.assertEqual(BUILD_CATALOG.layout_problems(kind, caps, None, "package_manifest.yaml"), [])
+
+    def test_catalog_manifest_must_match_the_package_manifest(self):
+        caps = ["robonix/skill/a/execute"]
+        root = caps + ["robonix/skill/legacy/execute"]
+        problems = BUILD_CATALOG.layout_problems("skill", caps, root, "package_manifest.catalog.yaml")
+        self.assertEqual([p["type"] for p in problems], ["manifest_mismatch"])
+        root = caps + ["robonix/service/runtime/execute"]
+        problems = BUILD_CATALOG.layout_problems("skill", caps, root, "package_manifest.catalog.yaml")
+        self.assertEqual([p["type"] for p in problems], ["mixed_kinds", "manifest_mismatch"])
+        self.assertEqual(BUILD_CATALOG.layout_problems("skill", caps, list(caps), "package_manifest.catalog.yaml"), [])
