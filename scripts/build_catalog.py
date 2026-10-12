@@ -11,7 +11,9 @@ import posixpath
 import re
 import shutil
 import sys
+import threading
 import time
+import tomllib
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -472,6 +474,121 @@ def layout_problems(kind: str, cap_names: list[str], root_caps: list[str] | None
             "reason": f"{manifest_path} and package_manifest.yaml declare different capabilities "
                       f"({only_root} only in package_manifest.yaml, {only_here} only in {manifest_path})",
         })
+    return problems
+
+
+CAPABILITY_RE = re.compile(r"^robonix/(primitive|service|skill|lifecycle)/")
+LOCAL_CONTRACT_RE = re.compile(r"(^|/)capabilities/(?!lib/)[^ ]*\.toml$")
+
+_robonix_contracts: tuple[set[str], set[str], tuple[str, ...]] | None = None
+_robonix_contracts_lock = threading.Lock()
+
+
+def raw_text(repo_url: str, branch: str, path: str) -> str:
+    """One file at a ref, through raw.githubusercontent, which costs no API quota."""
+    owner, repo = parse_repo(repo_url)
+    url = (f"https://raw.githubusercontent.com/{owner}/{repo}/"
+           f"{urllib.parse.quote(branch, safe='')}/{urllib.parse.quote(path)}")
+    for attempt in range(1, GITHUB_ATTEMPTS + 1):
+        try:
+            return download_bytes(url).decode("utf-8")
+        except Exception as error:
+            if attempt == GITHUB_ATTEMPTS:
+                fail(f"could not read {url}: {error}")
+            time.sleep(GITHUB_RETRY_DELAY * attempt)
+    return ""
+
+
+def contract_of(text: str) -> dict | None:
+    """The [contract] table of a contract TOML, if it has one with an id."""
+    try:
+        contract = tomllib.loads(text).get("contract")
+    except tomllib.TOMLDecodeError:
+        return None
+    return contract if isinstance(contract, dict) and isinstance(contract.get("id"), str) else None
+
+
+def robonix_contracts() -> tuple[set[str], set[str], tuple[str, ...]]:
+    """The contract ids Robonix defines, its IDL files and its IDL submodules.
+
+    Read once per build from the Robonix source tree: capabilities/**/*.toml
+    outside lib/, and the IDL under capabilities/lib/, part of it submodules
+    (common_interfaces) whose files the tree does not list.
+    """
+    global _robonix_contracts
+    with _robonix_contracts_lock:
+        if _robonix_contracts is None:
+            branch = load_remote_default_branch(ROBONIX_SOURCE_REPO)
+            tree = load_remote_repository_tree(ROBONIX_SOURCE_REPO, branch)
+            lib = "capabilities/lib/"
+            tomls = [p for p, t in tree.items() if t == "blob" and p.startswith("capabilities/")
+                     and not p.startswith(lib) and p.endswith(".toml")]
+            with concurrent.futures.ThreadPoolExecutor(max_workers=COLLECT_WORKERS) as pool:
+                texts = list(pool.map(lambda p: raw_text(ROBONIX_SOURCE_REPO, branch, p), tomls))
+            _robonix_contracts = (
+                {c["id"] for c in map(contract_of, texts) if c},
+                {p[len(lib):] for p, t in tree.items() if t == "blob" and p.startswith(lib)},
+                tuple(p[len(lib):] + "/" for p, t in tree.items() if t == "commit" and p.startswith(lib)),
+            )
+        return _robonix_contracts
+
+
+def contract_problems(repo: str, branch: str, manifest: dict, manifest_path: str) -> list[dict]:
+    """Capabilities that no contract defines.
+
+    A capability is a contract id, robonix/<kind>/<namespace>/<interface>:
+    one of Robonix's own, or one the package defines in a TOML under its
+    capabilities/ with the IDL beneath capabilities/lib/ (packaging spec
+    §1.2). Without a contract rbnx codegen generates nothing for it and no
+    one can tell what it takes. The Robonix contracts and the package tree
+    are read only when a capability is not already accounted for.
+    """
+    problems = []
+    named = []
+    for cap in manifest.get("capabilities") or []:
+        if not CAPABILITY_RE.match(cap["name"]):
+            problems.append({
+                "type": "capability_name",
+                "reason": f"{cap['name']} is not a contract id; it must start with robonix/<kind>/",
+            })
+        else:
+            named.append(cap)
+    if not named:
+        return problems
+    robonix_ids, robonix_lib, robonix_submodules = robonix_contracts()
+    pending = [cap for cap in named if cap["name"] not in robonix_ids]
+    if not pending:
+        return problems
+
+    tree = load_remote_repository_tree(repo, branch)
+    base = posixpath.dirname(manifest_path)
+    paths = {cap["name"]: posixpath.normpath(posixpath.join(base, cap["path"]))
+             for cap in pending if isinstance(cap.get("path"), str)}
+    candidates = sorted({p for p, t in tree.items() if t == "blob" and LOCAL_CONTRACT_RE.search(p)}
+                        | {p for p in paths.values() if p in tree})
+    local = {}
+    for path in candidates:
+        contract = contract_of(raw_text(repo, branch, path))
+        if contract:
+            local.setdefault(contract["id"], (path, contract.get("idl")))
+
+    for cap in pending:
+        name = cap["name"]
+        path = paths.get(name)
+        if path and path not in tree:
+            reason = f"{name}: its path {path} does not exist"
+        elif name not in local:
+            reason = (f"{name}: {path} has no [contract] table with this id" if path else
+                      f"no contract defines {name}; add one under capabilities/ with its IDL "
+                      f"in capabilities/lib/, or use a Robonix contract")
+        else:
+            toml_path, idl = local[name]
+            lib = toml_path.rsplit("capabilities/", 1)[0] + "capabilities/lib/"
+            if not isinstance(idl, str) or (lib + idl) in tree or idl in robonix_lib \
+                    or idl.startswith(robonix_submodules):
+                continue
+            reason = f"{name}: its IDL {idl} is in neither {lib} nor Robonix's capabilities/lib/"
+        problems.append({"type": "undefined_contract", "reason": reason})
     return problems
 
 
@@ -1043,7 +1160,10 @@ def collect_entry(
                 root_manifest = None
             if isinstance(root_manifest, dict):
                 root_caps = collect_capabilities(name, root_manifest)
-        for problem in layout_problems(kind, cap_names, root_caps, manifest_path):
+        problems = layout_problems(kind, cap_names, root_caps, manifest_path)
+        if kind in KINDS:
+            problems += contract_problems(repo, branch, manifest, manifest_path)
+        for problem in problems:
             # A new or changed entry has to fix this before it is merged; an
             # entry already in the catalog is listed with a warning.
             if not allow_name_mismatch:

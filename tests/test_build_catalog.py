@@ -1132,3 +1132,46 @@ class LayoutProblemsTest(unittest.TestCase):
         problems = BUILD_CATALOG.layout_problems("skill", caps, root, "package_manifest.catalog.yaml")
         self.assertEqual([p["type"] for p in problems], ["mixed_kinds", "manifest_mismatch"])
         self.assertEqual(BUILD_CATALOG.layout_problems("skill", caps, list(caps), "package_manifest.catalog.yaml"), [])
+
+
+class ContractProblemsTest(unittest.TestCase):
+    ROBONIX = ({"robonix/primitive/lidar/lidar"}, {"lidar/srv/Snap.srv"}, ("common_interfaces/",))
+    REPO = "https://github.com/example/primitive-example-rbnx"
+
+    def problems(self, caps, files):
+        tree = {path: "blob" for path in files}
+        with mock.patch.object(BUILD_CATALOG, "robonix_contracts", return_value=self.ROBONIX), \
+                mock.patch.object(BUILD_CATALOG, "load_remote_repository_tree", return_value=tree), \
+                mock.patch.object(BUILD_CATALOG, "raw_text", side_effect=lambda _r, _b, p: files[p]):
+            return BUILD_CATALOG.contract_problems(self.REPO, "main", {"capabilities": caps},
+                                                   "package_manifest.yaml")
+
+    def test_misspelled_prefix_is_reported(self):
+        problems = self.problems([{"name": "robinix/primitive/lidar/lidar"}], {})
+        self.assertEqual([p["type"] for p in problems], ["capability_name"])
+
+    def test_robonix_and_package_contracts_pass(self):
+        files = {
+            "capabilities/snap.v1.toml": '[contract]\nid = "robonix/primitive/lidar/snap"\nidl = "x/srv/Snap.srv"\n',
+            "capabilities/lib/x/srv/Snap.srv": "",
+            "capabilities/scan.v1.toml": '[contract]\nid = "robonix/primitive/lidar/scan"\n'
+                                         'idl = "common_interfaces/sensor_msgs/msg/LaserScan.msg"\n',
+        }
+        caps = [{"name": "robonix/primitive/lidar/lidar"}, {"name": "robonix/primitive/lidar/snap"},
+                {"name": "robonix/primitive/lidar/scan", "path": "capabilities/scan.v1.toml"}]
+        self.assertEqual(self.problems(caps, files), [])
+
+    def test_undefined_contract_and_missing_idl_are_reported(self):
+        files = {
+            "capabilities/a.v1.toml": 'id = "robonix/skill/x/a"\n[mcp]\nidl = "lib/srv/A.srv"\n',
+            "capabilities/b.v1.toml": '[contract]\nid = "robonix/skill/x/b"\nidl = "x/srv/B.srv"\n',
+        }
+        caps = [{"name": "robonix/skill/x/a", "path": "capabilities/a.v1.toml"},
+                {"name": "robonix/skill/x/b"}, {"name": "robonix/skill/x/c"},
+                {"name": "robonix/skill/x/d", "path": "capabilities/d.v1.toml"}]
+        reasons = [p["reason"] for p in self.problems(caps, files)]
+        self.assertEqual(len(reasons), 4)
+        self.assertIn("no [contract] table", reasons[0])
+        self.assertIn("IDL x/srv/B.srv", reasons[1])
+        self.assertIn("no contract defines robonix/skill/x/c", reasons[2])
+        self.assertIn("does not exist", reasons[3])
