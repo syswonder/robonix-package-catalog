@@ -526,9 +526,9 @@ class CatalogMetadataTests(unittest.TestCase):
         self.assertEqual(count, 1)
         self.assertIn("::warning title=Catalog name mismatch", stderr.getvalue())
         self.assertIn("## Catalog metadata warning report", report)
-        self.assertIn('class="entry-warning"', listing)
-        self.assertIn("1 issue found while indexing", listing)
-        self.assertIn("manifest catalog name is", listing)
+        # Issues are shown on the entry's page, not in the listing.
+        self.assertNotIn("found while indexing", listing)
+        self.assertIn("manifest catalog name is", detail)
         self.assertIn("found while indexing this entry", detail)
         self.assertIn('"catalog_status": "warning"', api_data)
         self.assertIn('"manifest_name_mismatch"', api_data)
@@ -1043,9 +1043,7 @@ class DeploymentDependencyWarningTests(unittest.TestCase):
                 public / "robots" / "robonix.robot.example" / "index.html"
             ).read_text()
 
-        self.assertIn('class="entry-warning"', listing)
-        self.assertIn("1 issue found while indexing", listing)
-        self.assertIn("host-specific absolute path", listing)
+        self.assertNotIn("found while indexing", listing)
         self.assertIn('class="warn-box mt-3" role="note"', detail)
         self.assertIn("robot_description", detail)
         self.assertIn("host-specific absolute path", detail)

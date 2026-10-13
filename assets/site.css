@@ -606,8 +606,6 @@ button.tag[aria-pressed="true"] {
 }
 [data-bs-theme="dark"] .facet-option[aria-pressed="true"] { color: #0b0f16; }
 .facet-option[aria-pressed="true"] svg { color: currentColor; }
-.facet-option .n { font-size: 0.875rem; color: var(--bs-tertiary-color); font-variant-numeric: tabular-nums; }
-.facet-option[aria-pressed="true"] .n { color: currentColor; opacity: 0.75; }
 
 .facet-more {
   padding: 0;
@@ -736,20 +734,6 @@ html[data-prefilter-kind="robot"] [data-entry]:not([data-kind="robot"]) { displa
 .entry-shot-empty { display: grid; place-items: center; height: 100%; color: var(--bs-tertiary-color); }
 .entry-shot-empty svg { width: 22px; height: 22px; }
 
-.entry-warning { position: relative; z-index: 2; margin-top: 0.1rem; }
-.entry-warning summary {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.35rem;
-  font-size: 0.875rem;
-  font-weight: 570;
-  color: var(--k-warn-fg);
-  cursor: pointer;
-  list-style: none;
-}
-.entry-warning summary::-webkit-details-marker { display: none; }
-.entry-warning summary::after { content: "▸"; font-size: 0.6875rem; transition: transform 120ms; }
-.entry-warning[open] summary::after { transform: rotate(90deg); }
 .warn-box {
   margin: 0.5rem 0 0;
   padding: 0.6rem 0.75rem 0.6rem 1.75rem;

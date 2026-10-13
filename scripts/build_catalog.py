@@ -1534,12 +1534,12 @@ def render_entry_row(package: dict) -> str:
     Compact on purpose: an icon tile carrying the kind's colour, the name, two
     clamped lines of description, and a single metadata line. A robot leads
     with its photograph instead, the way an application listing would.
+    Indexing issues are shown on the entry's own page, not here.
     """
     slug = html.escape(package_slug(package["name"]))
     kind = package["kind"]
     known = kind if kind in KIND_GLYPH else "primitive"
     unit_count, unit_label = entry_units(package)
-    warnings = warning_entries(package)
     is_robot = package.get("catalog_type") == "robot"
 
     shot = ""
@@ -1555,15 +1555,6 @@ def render_entry_row(package: dict) -> str:
             inner = f'<span class="entry-shot-empty">{ICON_IMAGE}</span>'
         shot = f'<div class="entry-shot">{inner}</div>'
 
-    warning_block = ""
-    if warnings:
-        label = "issue" if len(warnings) == 1 else "issues"
-        items = "".join(f"<li>{w}</li>" for w in warnings)
-        warning_block = (
-            f'<details class="entry-warning"><summary>{len(warnings)} {label} found while indexing</summary>'
-            f'<ul class="warn-box">{items}</ul></details>'
-        )
-
     return f"""<li data-entry data-name="{html.escape(package['name'])}" data-kind="{html.escape(kind)}" data-units="{unit_count}" data-tags="{html.escape(' '.join(package['tags']))}" data-search="{html.escape(entry_search_text(package))}">
             <article class="entry-card k-{html.escape(known)}">
               {shot}
@@ -1573,7 +1564,6 @@ def render_entry_row(package: dict) -> str:
                   <a class="entry-name stretched-link" href="{slug}/">{wrappable_name(package['name'])}</a>
                 </div>
                 <p class="entry-desc">{html.escape(package['description'])}</p>
-                {warning_block}
                 <div class="entry-meta">
                   <span class="m-kind">{KIND_GLYPH[known]}{html.escape(kind)}</span>
                   <span class="sep">·</span>
@@ -1600,7 +1590,11 @@ def render_listing_page(
     lede: str,
     noun: str,
 ) -> None:
-    """Write /packages/ or /robots/: a sticky facet rail beside dense rows."""
+    """Write /packages/ or /robots/: a sticky facet rail beside dense rows.
+
+    The kind buttons carry no count: a package count there reads as the
+    number of skills, and the list header already says how many packages
+    match."""
     kind_counts: dict[str, int] = {}
     tag_counts: dict[str, int] = {}
     for package in packages:
@@ -1613,8 +1607,8 @@ def render_listing_page(
         f'<button type="button" class="facet-option k-{html.escape(kind if kind in KIND_GLYPH else "primitive")}" '
         f'data-kind-filter="{html.escape(kind)}" aria-pressed="false">'
         f'{KIND_GLYPH.get(kind, KIND_GLYPH["primitive"])}'
-        f'<span>{html.escape(kind)}</span><span class="n">{count}</span></button>'
-        for kind, count in sorted(kind_counts.items(), key=lambda kv: (-kv[1], kv[0]))
+        f'<span>{html.escape(kind)}</span></button>'
+        for kind, _count in sorted(kind_counts.items(), key=lambda kv: (-kv[1], kv[0]))
     )
 
     # A long tail of one-off tags pushes the useful facets off screen, so the
