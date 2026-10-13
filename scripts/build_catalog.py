@@ -614,9 +614,15 @@ def group_capabilities(kind: str, cap_names: list[str]) -> list[dict]:
 
 def provided_count(package: dict) -> int:
     """How many skills (services, primitives) a package provides: one per
-    contract namespace, and at least one for a package that declares any."""
-    groups = provided_groups(package)
-    return len(groups) or (1 if package.get("capabilities") else 0)
+    contract namespace of its own kind. A package declaring only the shared
+    lifecycle driver, or contracts outside its kind, provides none."""
+    return len(provided_groups(package))
+
+
+def interface_count(package: dict) -> int:
+    """How many capabilities (interfaces) a package provides: those under its
+    own kind's namespaces, so the shared lifecycle driver is not one."""
+    return sum(len(group["capabilities"]) for group in provided_groups(package))
 
 
 def provided_groups(package: dict) -> list[dict]:
@@ -1472,7 +1478,7 @@ def entry_units(package: dict) -> tuple[int, str]:
     if package.get("catalog_type") == "robot":
         count = len(package.get("deploy_dependencies", []))
         return count, "dependency" if count == 1 else "dependencies"
-    count = len(package.get("capabilities", []))
+    count = interface_count(package)
     unit = "capability" if count == 1 else "capabilities"
     provided = provided_count(package)
     if provided > 1:
@@ -1708,7 +1714,7 @@ def render_home(public_dir: Path, generated_at: str, packages: list[dict]) -> No
     """
     package_entries = [p for p in packages if p.get("catalog_type") != "robot"]
     robot_entries = [p for p in packages if p.get("catalog_type") == "robot"]
-    capability_total = sum(len(p.get("capabilities", [])) for p in package_entries)
+    capability_total = sum(interface_count(p) for p in package_entries)
     by_kind = {kind: [p for p in package_entries if p["kind"] == kind] for kind in KIND_ORDER}
     # Counted in skills (services, primitives), not packages: one package can
     # provide several, one per contract namespace.
@@ -1721,7 +1727,7 @@ def render_home(public_dir: Path, generated_at: str, packages: list[dict]) -> No
     skill_cards = []
     for skill in skills[:shelf_limit]:
         slug = html.escape(package_slug(skill["name"]))
-        count = len(skill.get("capabilities", []))
+        count = interface_count(skill)
         unit = "capability" if count == 1 else "capabilities"
         provided = provided_count(skill)
         if provided > 1:

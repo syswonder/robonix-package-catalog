@@ -1106,6 +1106,19 @@ class ProvidedGroupsTest(unittest.TestCase):
                 "robonix/skill/explore/explore/status", "robonix/skill/explore/explore/cancel"]
         self.assertEqual(BUILD_CATALOG.provided_count({"kind": "skill", "capabilities": caps}), 1)
 
+    def test_only_contracts_of_the_package_kind_count(self):
+        """The shared lifecycle driver, or a misspelled prefix, is no
+        primitive and no capability."""
+        for caps in (["robonix/lifecycle/driver"],
+                     ["robinix/primitive/lidar/lidar", "robinix/primitive/lidar/driver"]):
+            package = {"kind": "primitive", "capabilities": caps}
+            self.assertEqual(BUILD_CATALOG.provided_count(package), 0)
+            self.assertEqual(BUILD_CATALOG.interface_count(package), 0)
+        package = {"kind": "skill", "capabilities": [
+            "robonix/skill/explore/explore", "robonix/skill/explore/status",
+            "robonix/lifecycle/driver"]}
+        self.assertEqual(BUILD_CATALOG.interface_count(package), 2)
+
 
 
 class LayoutProblemsTest(unittest.TestCase):
