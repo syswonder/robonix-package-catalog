@@ -244,8 +244,8 @@ class RobotListingTests(unittest.TestCase):
 
         # Skills are the applications of the platform, so the homepage shows
         # real skill entries first rather than a link to a filtered list.
-        self.assertIn("<h2 class=\"mb-1\">Skills</h2>", rendered)
-        self.assertLess(rendered.index(">Skills<"), rendered.index("The substrate"))
+        self.assertIn("<h2 class=\"mb-1\">Skill packages</h2>", rendered)
+        self.assertLess(rendered.index(">Skill packages<"), rendered.index("The substrate"))
         self.assertIn('href="packages/?kind=skill"', rendered)
         self.assertIn('href="packages/?kind=primitive"', rendered)
         self.assertIn('href="packages/?kind=service"', rendered)

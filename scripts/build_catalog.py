@@ -1267,9 +1267,9 @@ DOCS_URL = "https://book.robonix.ai/"
 # capabilities are the interface, contracts are their shape, and primitive /
 # service / skill are the three kinds of provider.
 KIND_BLURB = {
-    "primitive": "Hardware-facing providers. One package per device, exposing what it can do through the standard capability contracts.",
-    "service": "Shared computation layered on top of primitives — mapping, navigation, perception, speech.",
-    "skill": "Task-level providers that compose services and primitives into something a robot can be asked to do.",
+    "primitive": "Hardware-facing packages, usually one per device, providing primitives: what the device can do, through the standard capability contracts.",
+    "service": "Packages providing services: shared computation layered on top of primitives — mapping, navigation, perception, speech.",
+    "skill": "Packages providing skills: task-level behaviour that composes services and primitives into something a robot can be asked to do.",
 }
 KIND_ORDER = ("primitive", "service", "skill")
 
@@ -1324,8 +1324,18 @@ def wrappable_name(name: str) -> str:
     return escaped
 
 
+def counted(n: int, noun: str) -> str:
+    return f"{n} {noun}" if n == 1 else f"{n} {noun}s"
+
+
+def kind_label(kind: str) -> str:
+    """A package's kind as shown: "skill package", never "skill", which is
+    what the package provides."""
+    return f"{kind} package" if kind in KIND_ORDER else kind
+
+
 def kind_chip(kind: str) -> str:
-    safe = html.escape(kind)
+    safe = html.escape(kind_label(kind))
     known = kind if kind in {"primitive", "service", "skill", "robot"} else "plain"
     return f'<span class="chip chip-{known}">{safe}</span>'
 
@@ -1408,9 +1418,7 @@ def render_navbar(root: str, current: str, *, search_target: str, search_placeho
       </button>
       <div class="collapse navbar-collapse flex-lg-grow-0 order-lg-2" id="site-menu">
         <ul class="navbar-nav align-items-lg-center">
-          {nav_link('packages/?kind=skill', 'Skills', 'packages', 'skill')}
-          {nav_link('packages/?kind=service', 'Services', 'packages', 'service')}
-          {nav_link('packages/?kind=primitive', 'Primitives', 'packages', 'primitive')}
+          {nav_link('packages/', 'Packages', 'packages')}
           {nav_link('robots/', 'Robots', 'robots')}
           {nav_link('api/view/', 'API', 'api')}
         </ul>
@@ -1571,7 +1579,7 @@ def render_entry_row(package: dict) -> str:
                 </div>
                 <p class="entry-desc">{html.escape(package['description'])}</p>
                 <div class="entry-meta">
-                  <span class="m-kind">{KIND_GLYPH[known]}{html.escape(kind)}</span>
+                  <span class="m-kind">{KIND_GLYPH[known]}{html.escape(kind_label(kind))}</span>
                   <span class="sep">·</span>
                   <span title="{unit_label}">{ICON_CAP}{unit_count}</span>
                   <span class="sep">·</span>
@@ -1613,7 +1621,7 @@ def render_listing_page(
         f'<button type="button" class="facet-option k-{html.escape(kind if kind in KIND_GLYPH else "primitive")}" '
         f'data-kind-filter="{html.escape(kind)}" aria-pressed="false">'
         f'{KIND_GLYPH.get(kind, KIND_GLYPH["primitive"])}'
-        f'<span>{html.escape(kind)}</span></button>'
+        f'<span>{html.escape(kind)} packages</span></button>'
         for kind, _count in sorted(kind_counts.items(), key=lambda kv: (-kv[1], kv[0]))
     )
 
@@ -1636,7 +1644,7 @@ def render_listing_page(
     unit_sort_label = "Most dependencies" if page == "robots" else "Most capabilities"
     kind_facet = (
         f"""<div class="mb-4">
-              <div class="facet-title mb-2">Kind</div>
+              <div class="facet-title mb-2">Package kind</div>
               <div class="facet-pills">{kind_options}</div>
             </div>"""
         if len(kind_counts) > 1
@@ -1731,7 +1739,7 @@ def render_home(public_dir: Path, generated_at: str, packages: list[dict]) -> No
         unit = "capability" if count == 1 else "capabilities"
         provided = provided_count(skill)
         if provided > 1:
-            unit = f"{unit} · {provided} skills"
+            unit = f"{unit} in {provided} skills"
         skill_cards.append(
             f"""<div class="col">
             <a class="card card-link-block h-100 p-3 d-flex flex-column gap-2" href="packages/{slug}/">
@@ -1745,7 +1753,7 @@ def render_home(public_dir: Path, generated_at: str, packages: list[dict]) -> No
         skill_cards.append(
             f"""<div class="col">
             <a class="card card-link-block card-more h-100 d-flex flex-row align-items-center justify-content-center gap-2" href="packages/?kind=skill">
-              <span>All {provided_by_kind['skill']} skills</span>{ICON_ARROW}
+              <span>All {len(skills)} skill packages</span>{ICON_ARROW}
             </a>
           </div>"""
         )
@@ -1779,11 +1787,11 @@ def render_home(public_dir: Path, generated_at: str, packages: list[dict]) -> No
             <a class="card card-link-block h-100 p-3" href="packages/?kind={kind}">
               <div class="d-flex align-items-center justify-content-between gap-2 mb-2">
                 {kind_chip(kind)}
-                <span class="card-foot">{provided_by_kind[kind]}</span>
+                <span class="card-foot">{counted(len(by_kind[kind]), "package")} · {counted(provided_by_kind[kind], kind)}</span>
               </div>
-              <h3 class="h6 mb-2">{kind.capitalize()}s</h3>
+              <h3 class="h6 mb-2">{kind.capitalize()} packages</h3>
               <p class="card-desc mb-3" style="-webkit-line-clamp: 4; line-clamp: 4">{html.escape(KIND_BLURB[kind])}</p>
-              <span class="card-go d-inline-flex align-items-center gap-1 mt-auto">Browse {kind}s {ICON_ARROW}</span>
+              <span class="card-go d-inline-flex align-items-center gap-1 mt-auto">Browse {kind} packages {ICON_ARROW}</span>
             </a>
           </div>"""
         )
@@ -1792,8 +1800,8 @@ def render_home(public_dir: Path, generated_at: str, packages: list[dict]) -> No
     for kind in KIND_ORDER:
         rail_links.append(
             f'<a class="rail-link k-{kind}" href="packages/?kind={kind}">'
-            f'{KIND_GLYPH[kind]}<span>{kind.capitalize()}s</span>'
-            f'<span class="n">{provided_by_kind[kind]}</span></a>'
+            f'{KIND_GLYPH[kind]}<span>{kind.capitalize()} packages</span>'
+            f'<span class="n">{len(by_kind[kind])}</span></a>'
         )
     rail_links.append(
         f'<a class="rail-link k-robot" href="robots/">'
@@ -1826,17 +1834,19 @@ def render_home(public_dir: Path, generated_at: str, packages: list[dict]) -> No
         <span class="hero-mark">{KIND_GLYPH['robot']}</span>
       </div>
       <h1 class="mb-3">The Robonix package catalog.</h1>
-      <p class="hero-lede mb-4">Skills, services, primitives, and complete robot deployments,
-      published by the community. Every entry is read straight from its own repository's
+      <p class="hero-lede mb-4">Skill, service and primitive packages, and complete robot
+      deployments, published by the community. Every entry is read straight from its own repository's
       manifest, so what you see here is what the package actually declares.</p>
       <div class="d-flex flex-wrap gap-4 mb-4">
-        <span class="hero-stat d-flex align-items-baseline gap-2"><b>{provided_by_kind['skill']}</b><span>skills</span></span>
         <span class="hero-stat d-flex align-items-baseline gap-2"><b>{len(package_entries)}</b><span>packages</span></span>
+        <span class="hero-stat d-flex align-items-baseline gap-2"><b>{provided_by_kind['primitive']}</b><span>primitives</span></span>
+        <span class="hero-stat d-flex align-items-baseline gap-2"><b>{provided_by_kind['service']}</b><span>services</span></span>
+        <span class="hero-stat d-flex align-items-baseline gap-2"><b>{provided_by_kind['skill']}</b><span>skills</span></span>
+        <span class="hero-stat d-flex align-items-baseline gap-2"><b>{capability_total}</b><span>capabilities</span></span>
         <span class="hero-stat d-flex align-items-baseline gap-2"><b>{len(robot_entries)}</b><span>robot deployments</span></span>
-        <span class="hero-stat d-flex align-items-baseline gap-2"><b>{capability_total}</b><span>declared capabilities</span></span>
       </div>
       <div class="d-flex flex-wrap gap-2">
-        <a class="btn btn-primary" href="packages/?kind=skill">Browse skills</a>
+        <a class="btn btn-primary" href="packages/?kind=skill">Browse skill packages</a>
         <a class="btn btn-outline-secondary" href="submit/">{ICON_PLUS} Submit a package</a>
       </div>
     </section>
@@ -1844,10 +1854,10 @@ def render_home(public_dir: Path, generated_at: str, packages: list[dict]) -> No
     <section class="mt-5">
       <div class="section-head d-flex flex-wrap align-items-baseline justify-content-between gap-3 mb-3">
         <div>
-          <h2 class="mb-1">Skills</h2>
+          <h2 class="mb-1">Skill packages</h2>
           <p class="mb-0">{html.escape(KIND_BLURB['skill'])}</p>
         </div>
-        <a class="section-more d-inline-flex align-items-center gap-1" href="packages/?kind=skill">All skills {ICON_ARROW}</a>
+        <a class="section-more d-inline-flex align-items-center gap-1" href="packages/?kind=skill">All skill packages {ICON_ARROW}</a>
       </div>
       <div class="row row-cols-1 row-cols-sm-2 row-cols-lg-3 row-cols-xl-4 g-3">
         {''.join(skill_cards)}
@@ -2441,7 +2451,7 @@ def render_package_pages(public_dir: Path, generated_at: str, packages: list[dic
                 <dl class="kv mb-0">
                   <dt>Version</dt><dd><code>{html.escape(p['version'])}</code></dd>
                   <dt>License</dt><dd><code>{html.escape(p['license'])}</code></dd>
-                  <dt>Kind</dt><dd>{html.escape(p['kind'])}</dd>
+                  <dt>Kind</dt><dd>{html.escape(kind_label(p['kind']))}</dd>
                   <dt>Repository</dt><dd><a href="{html.escape(p['repo'])}">{html.escape(p['repo_name'])}</a></dd>
                   <dt>Branch</dt><dd><code>{html.escape(p['default_branch'])}</code></dd>
                   <dt>Manifest</dt><dd><code>{html.escape(p['manifest'])}</code></dd>
