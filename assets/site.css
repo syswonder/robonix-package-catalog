@@ -517,7 +517,7 @@ button.tag[aria-pressed="true"] {
 }
 .robot-rail > * { scroll-snap-align: start; }
 .robot-shot {
-  aspect-ratio: 4 / 3;
+  aspect-ratio: 16 / 10;
   display: grid;
   place-items: center;
   overflow: hidden;

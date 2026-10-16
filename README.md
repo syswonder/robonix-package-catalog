@@ -232,7 +232,7 @@ assets/promo/
 | Layout | `promo/01.png` … `promo/10.png`, or `promo/zh/` and `promo/en/` with the same numbers; never both styles in one package |
 | Names | two digits from `01` without gaps, at most `10`; lower-case `.png` or `.jpg`; one file per number |
 | Size | exactly 1600×1000 pixels |
-| Format | PNG or JPEG, matching the extension; 8-bit RGB in sRGB, no alpha channel |
+| Format | PNG or JPEG, matching the extension, in sRGB. A PNG is 8-bit truecolor RGB (colour type 2, bit depth 8): no palette, alpha, grayscale or 16-bit. A JPEG has three 8-bit components: no CMYK or grayscale. Both are read from the file header, not from what a decoder converts them to |
 | File size | at most 2 MB |
 | Icon | `icon.svg`, or `icon.png` exactly 512×512 (transparency allowed); not both |
 
@@ -240,7 +240,7 @@ Images and icons are optional: a repository without `assets/promo/` or an icon i
 
 A pull request that adds or changes a catalog entry fails CI when that package's images break a rule, and the log names each file and rule, for example `assets/promo/en/02.png: 1920×1080, expected 1600×1000`. For entries already in the catalog the scheduled and `main` builds never fail on images: they print the same warnings and leave the set out, so one package cannot break the site.
 
-The site is in English, so it shows the set without text, else `promo/en/`, else `promo/zh/`. The list card crops the cover to 4:3 from the centre, and the package page shows every image in a gallery that links to the full-size file. The builder makes 380 px and 720 px WebP previews from the cover and a 1280 px wide WebP copy of each image.
+The site is in English, so it shows the set without text, else `promo/en/`, else `promo/zh/`. The list card crops the cover to 16:10 from the centre, and the package page shows every image in a gallery that links to the full-size file. The builder makes 380 px and 720 px WebP previews from the cover and a 1280 px wide WebP copy of each image.
 
 `assets/robot.jpg` is deprecated. It is read only when a repository has no `assets/promo/`, as that package's single image, and CI prints a warning asking to move it to `assets/promo/01.jpg` at 1600×1000. No package, robots included, is required to have images.
 

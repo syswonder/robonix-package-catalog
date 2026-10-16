@@ -43,7 +43,7 @@ SITE_ASSETS = (
 )
 VENDOR_ASSETS = Path("assets/vendor")
 LEGACY_MISSING_LICENSE = {"robonix.robot.wheeltec.r550"}
-PREVIEW_SIZES = ((380, 285), (720, 540))
+PREVIEW_SIZES = ((380, 238), (720, 450))
 PREVIEW_WEBP_QUALITY = 76
 GALLERY_WIDTH = 1280
 # The artwork spec, the same rules and wording as Robonix Hub's
@@ -145,7 +145,7 @@ def save_webp(image: Image.Image, path: Path) -> None:
 def prepare_promo_images(public_dir: Path, packages: list[dict]) -> None:
     """Card previews from the first promo image, a gallery copy of every one.
 
-    The card previews are center-cropped to 4:3; the gallery copy keeps the
+    The card previews are center-cropped to 16:10; the gallery copy keeps the
     aspect ratio and is never upscaled. An image that cannot be fetched or
     decoded is left to its raw URL.
     """
@@ -344,37 +344,89 @@ def promo_layout(paths: list[str]) -> tuple[dict[str, list[str]], list[dict]]:
 
 # Format names as Hub prints them (Rust's image crate), so both say the same.
 FORMAT_NAMES = {"PNG": "Png", "JPEG": "Jpeg", "WEBP": "WebP", "GIF": "Gif", "BMP": "Bmp", "TIFF": "Tiff"}
-MODE_NAMES = {"L": "L8", "1": "L8", "I;16": "L16", "I": "L16", "CMYK": "Cmyk8", "YCbCr": "YCbCr8", "LAB": "Lab8"}
+PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
+
+
+def image_header(data: bytes) -> tuple[int, int, str] | None:
+    """A PNG's or a JPEG's width, height and pixel layout, read from its
+    header (IHDR, or the JPEG frame header) rather than from a decoder, which
+    would convert a palette or CMYK without saying so. The layout is "" when
+    it is 8-bit RGB, else what it is. Hub's header() in artwork.rs."""
+    if data.startswith(PNG_SIGNATURE):
+        if data[12:16] != b"IHDR" or len(data) < 26:
+            return None
+        width, height = int.from_bytes(data[16:20], "big"), int.from_bytes(data[20:24], "big")
+        depth, colour = data[24], data[25]
+        if colour == 2 and depth == 8:
+            layout = ""
+        elif colour in (4, 6):
+            layout = "alpha"
+        else:
+            name = {0: "grayscale", 2: "RGB", 3: "palette"}.get(colour)
+            layout = f"{depth}-bit {name}" if name else f"colour type {colour}"
+        return width, height, layout
+    if not data.startswith(b"\xff\xd8"):
+        return None
+    i = 2
+    while i + 4 <= len(data):
+        if data[i] != 0xFF:
+            return None
+        marker = data[i + 1]
+        if marker == 0xFF:
+            i += 1
+            continue
+        if marker == 0x01 or 0xD0 <= marker <= 0xD7:
+            i += 2
+            continue
+        # A frame header (SOF0-SOF15, not DHT, JPG or DAC): precision,
+        # height, width and the number of components.
+        if 0xC0 <= marker <= 0xCF and marker not in (0xC4, 0xC8, 0xCC):
+            if len(data) < i + 10:
+                return None
+            precision, components = data[i + 4], data[i + 9]
+            height, width = int.from_bytes(data[i + 5:i + 7], "big"), int.from_bytes(data[i + 7:i + 9], "big")
+            if (precision, components) == (8, 3):
+                layout = ""
+            else:
+                name = {1: "grayscale", 3: "RGB", 4: "CMYK"}.get(components, f"{components}-component")
+                layout = f"{precision}-bit {name}"
+            return width, height, layout
+        if marker == 0xDA:
+            return None
+        i += 2 + int.from_bytes(data[i + 2:i + 4], "big")
+    return None
 
 
 def check_promo(path: str, data: bytes) -> list[dict]:
-    """What is wrong with one promo image: its bytes and pixels, its format
-    against its name, an alpha channel, and colour other than 8-bit sRGB
-    (a profile that does not name sRGB, Display P3 say)."""
+    """What is wrong with one promo image: its size in bytes and pixels, its
+    format against its name, and pixels other than 8-bit RGB (a PNG of colour
+    type 2 at depth 8, a JPEG of three 8-bit components) in sRGB (a profile
+    that does not name sRGB, Display P3 say)."""
     out = []
     if len(data) > PROMO_MAX_BYTES:
         out.append(artwork_problem(path, f"{len(data) / 1e6:.1f} MB, at most 2 MB"))
     want = "PNG" if path.endswith(".png") else "JPEG"
     try:
-        image = Image.open(io.BytesIO(data))
+        with Image.open(io.BytesIO(data)) as image:
+            found = image.format
+            icc = image.info.get("icc_profile")
     except (UnidentifiedImageError, OSError):
         return out + [artwork_problem(path, "not an image")]
-    with image:
-        if image.format != want:
-            name = FORMAT_NAMES.get(image.format or "", image.format or "unknown")
-            return out + [artwork_problem(path, f"a {name} file under a .{path.rsplit('.', 1)[1]} name")]
-        w, h = image.size
-        if (w, h) != PROMO_SIZE:
-            out.append(artwork_problem(path, f"{w}×{h}, expected {PROMO_SIZE[0]}×{PROMO_SIZE[1]}"))
-        mode = image.mode
-        alpha = mode in ("RGBA", "LA", "PA", "La", "RGBa") or (mode == "P" and "transparency" in image.info)
-        if alpha:
-            out.append(artwork_problem(path, "has an alpha channel"))
-        elif mode not in ("RGB", "P"):
-            out.append(artwork_problem(path, f"{MODE_NAMES.get(mode, mode)} pixels, expected 8-bit RGB"))
-        icc = image.info.get("icc_profile")
-        if icc and b"sRGB" not in icc:
-            out.append(artwork_problem(path, "colour profile is not sRGB"))
+    if found != want:
+        name = FORMAT_NAMES.get(found or "", found or "unknown")
+        return out + [artwork_problem(path, f"a {name} file under a .{path.rsplit('.', 1)[1]} name")]
+    header = image_header(data)
+    if header is None:
+        return out + [artwork_problem(path, "cannot be read")]
+    w, h, layout = header
+    if (w, h) != PROMO_SIZE:
+        out.append(artwork_problem(path, f"{w}×{h}, expected {PROMO_SIZE[0]}×{PROMO_SIZE[1]}"))
+    if layout == "alpha":
+        out.append(artwork_problem(path, "has an alpha channel"))
+    elif layout:
+        out.append(artwork_problem(path, f"{layout} pixels, expected 8-bit RGB"))
+    if icc and b"sRGB" not in icc:
+        out.append(artwork_problem(path, "colour profile is not sRGB"))
     return out
 
 
@@ -1830,7 +1882,7 @@ def render_entry_row(package: dict) -> str:
     if src:
         srcset_attr = f' srcset="{srcset}" sizes="(max-width: 768px) 100vw, 380px"' if srcset else ""
         shot = (
-            f'<div class="entry-shot"><img src="{src}"{srcset_attr} alt="" width="380" height="285" '
+            f'<div class="entry-shot"><img src="{src}"{srcset_attr} alt="" width="380" height="238" '
             f'loading="lazy" decoding="async"></div>'
         )
     elif is_robot:
@@ -2033,7 +2085,7 @@ def render_home(public_dir: Path, generated_at: str, packages: list[dict]) -> No
         if src:
             srcset_attr = f' srcset="{srcset}" sizes="220px"' if srcset else ""
             shot = (
-                f'<img src="{src}"{srcset_attr} alt="" width="380" height="285" '
+                f'<img src="{src}"{srcset_attr} alt="" width="380" height="238" '
                 f'loading="lazy" decoding="async">'
             )
         else:

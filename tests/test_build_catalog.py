@@ -3,6 +3,7 @@ import io
 import json
 import tempfile
 import unittest
+import zlib
 from pathlib import Path
 from unittest import mock
 
@@ -139,7 +140,7 @@ class RobotListingTests(unittest.TestCase):
             rendered = (public / "robots" / "index.html").read_text()
 
         self.assertIn('class="entry-shot"', rendered)
-        self.assertIn('width="380" height="285"', rendered)
+        self.assertIn('width="380" height="238"', rendered)
         self.assertIn('loading="lazy" decoding="async"', rendered)
         # The card carries its kind's colour, so a grid of them reads as
         # distinct families rather than one uniform wall.
@@ -167,9 +168,9 @@ class RobotListingTests(unittest.TestCase):
             self.assertTrue(large.is_file())
             with Image.open(small) as preview:
                 self.assertEqual(preview.format, "WEBP")
-                self.assertEqual(preview.size, (380, 285))
+                self.assertEqual(preview.size, (380, 238))
             with Image.open(large) as preview:
-                self.assertEqual(preview.size, (720, 540))
+                self.assertEqual(preview.size, (720, 450))
             # Every promo image gets a gallery copy, aspect ratio kept.
             for url in urls:
                 asset, width, height = package["_gallery_images"][url]
@@ -1274,7 +1275,6 @@ class ArtworkSpecTest(unittest.TestCase):
         rule = lambda path, data: [p["rule"] for p in check(path, data)]
         self.assertEqual(rule("assets/promo/en/02.png", encoded((1920, 1080))), ["1920×1080, expected 1600×1000"])
         self.assertEqual(rule("assets/promo/01.png", encoded(mode="RGBA")), ["has an alpha channel"])
-        self.assertEqual(rule("assets/promo/01.png", encoded(mode="L")), ["L8 pixels, expected 8-bit RGB"])
         self.assertEqual(rule("assets/promo/01.jpg", encoded()), ["a Png file under a .jpg name"])
         self.assertEqual(rule("assets/promo/01.png", b"text"), ["not an image"])
         p3 = encoded(icc_profile=b"\0" * 40 + b"Display P3")
@@ -1282,6 +1282,20 @@ class ArtworkSpecTest(unittest.TestCase):
         self.assertEqual(rule("assets/promo/01.png", encoded(icc_profile=b"\0" * 40 + b"sRGB IEC61966-2.1")), [])
         with mock.patch.object(BUILD_CATALOG, "PROMO_MAX_BYTES", 10):
             self.assertIn("MB, at most 2 MB", rule("assets/promo/01.png", encoded())[0])
+
+    def test_a_promo_image_is_8_bit_rgb_by_its_header(self):
+        rule = lambda path, data: [p["rule"] for p in BUILD_CATALOG.check_promo(path, data)]
+        sixteen = bytearray(encoded())
+        sixteen[24] = 16  # IHDR bit depth; the rules read the header, not the pixels
+        sixteen[29:33] = zlib.crc32(bytes(sixteen[12:29])).to_bytes(4, "big")
+        self.assertEqual(rule("assets/promo/01.png", bytes(sixteen)), ["16-bit RGB pixels, expected 8-bit RGB"])
+        # One colour: Pillow writes the palette at depth 1.
+        self.assertEqual(rule("assets/promo/01.png", encoded(mode="P")), ["1-bit palette pixels, expected 8-bit RGB"])
+        self.assertEqual(rule("assets/promo/01.png", encoded(mode="L")), ["8-bit grayscale pixels, expected 8-bit RGB"])
+        self.assertEqual(rule("assets/promo/01.png", encoded(mode="I;16")), ["16-bit grayscale pixels, expected 8-bit RGB"])
+        self.assertEqual(rule("assets/promo/01.jpg", encoded(mode="CMYK", fmt="JPEG")), ["8-bit CMYK pixels, expected 8-bit RGB"])
+        self.assertEqual(rule("assets/promo/01.jpg", encoded(mode="L", fmt="JPEG")), ["8-bit grayscale pixels, expected 8-bit RGB"])
+        self.assertEqual(BUILD_CATALOG.image_header(encoded(fmt="JPEG")), (1600, 1000, ""))
 
     def test_an_icon_is_an_svg_or_a_512_png(self):
         check = BUILD_CATALOG.check_icon
