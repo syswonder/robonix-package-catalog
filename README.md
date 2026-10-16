@@ -206,34 +206,43 @@ accepted when no override is selected). `${ROBONIX_DEPLOY_DIR}` resolves
 to the robot repository root, while `${ROBONIX_SOURCE_PATH}` resolves to
 the default branch of `https://github.com/syswonder/robonix`.
 
-## Promo images
+## Images
 
-Every package and robot repository can show images in the catalog, the way an
-App Store listing shows screenshots:
+A package or robot repository can give the catalog an icon and up to ten promotional images, the way an app store listing has an icon and screenshots. Robonix Hub reads the same files under the same rules.
 
 ```
 assets/
-├── promo/          1–10 images, in filename order: 01.png, 02.jpg, ...
-│   ├── 01.png      the list card shows this one
-│   └── ...
-└── icon.svg        optional square icon, shown beside the title on the package page
+├── icon.svg            optional; or icon.png, exactly 512×512
+└── promo/              optional
+    ├── 01.png          the cover, shown on list cards
+    ├── 02.jpg
+    └── ...             up to 10.png
 ```
 
-Promo images may be PNG, JPEG or WebP; the icon may be `icon.svg`,
-`icon.png`, `icon.webp` or `icon.jpg`. A 16:9 image of at least 1280×720 is
-recommended. The list card crops the first image to 4:3 from the center, and
-the package page shows all of them in a gallery that links to the full-size
-files. The builder generates 380 px and 720 px WebP card previews from the
-first image and a 1280 px wide WebP copy of each one; an image that cannot be
-fetched is linked as is.
+Images that carry text can come in one set per language instead, with the same numbers in both:
 
-Promo images are optional for primitive, service and skill packages. A robot
-deployment must have at least one: a new or changed robot entry without one
-fails CI, and a robot already in the catalog shows the problem on its own page.
+```
+assets/promo/
+├── zh/01.png … zh/05.png
+└── en/01.png … en/05.png
+```
 
-`assets/robot.jpg` is deprecated. It is still read for compatibility: when
-`assets/promo/` has no images, a robot's `assets/robot.jpg` is its only promo
-image and meets the requirement. New repositories should use `assets/promo/`.
+| Rule | |
+| --- | --- |
+| Layout | `promo/01.png` … `promo/10.png`, or `promo/zh/` and `promo/en/` with the same numbers; never both styles in one package |
+| Names | two digits from `01` without gaps, at most `10`; lower-case `.png` or `.jpg`; one file per number |
+| Size | exactly 1600×1000 pixels |
+| Format | PNG or JPEG, matching the extension; 8-bit RGB in sRGB, no alpha channel |
+| File size | at most 2 MB |
+| Icon | `icon.svg`, or `icon.png` exactly 512×512 (transparency allowed); not both |
+
+Images and icons are optional: a repository without `assets/promo/` or an icon is skipped. What is there must follow every rule. One broken image drops the whole set, and a broken icon is not shown; the catalog never shows part of a set. The sRGB check reads the embedded colour profile: an image with none passes, and one whose profile is not sRGB (Display P3, say) does not.
+
+A pull request that adds or changes a catalog entry fails CI when that package's images break a rule, and the log names each file and rule, for example `assets/promo/en/02.png: 1920×1080, expected 1600×1000`. For entries already in the catalog the scheduled and `main` builds never fail on images: they print the same warnings and leave the set out, so one package cannot break the site.
+
+The site is in English, so it shows the set without text, else `promo/en/`, else `promo/zh/`. The list card crops the cover to 4:3 from the centre, and the package page shows every image in a gallery that links to the full-size file. The builder makes 380 px and 720 px WebP previews from the cover and a 1280 px wide WebP copy of each image.
+
+`assets/robot.jpg` is deprecated. It is read only when a repository has no `assets/promo/`, as that package's single image, and CI prints a warning asking to move it to `assets/promo/01.jpg` at 1600×1000. No package, robots included, is required to have images.
 
 ## Building the site
 

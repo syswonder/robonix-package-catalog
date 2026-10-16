@@ -46,9 +46,17 @@ LEGACY_MISSING_LICENSE = {"robonix.robot.wheeltec.r550"}
 PREVIEW_SIZES = ((380, 285), (720, 540))
 PREVIEW_WEBP_QUALITY = 76
 GALLERY_WIDTH = 1280
-PROMO_LIMIT = 10
-PROMO_EXTENSIONS = (".png", ".jpg", ".jpeg", ".webp")
-ICON_NAMES = ("icon.svg", "icon.png", "icon.webp", "icon.jpg")
+# The artwork spec, the same rules and wording as Robonix Hub's
+# server/src/artwork.rs: see "Images" in README.md.
+PROMO_SLOTS = 10
+PROMO_SIZE = (1600, 1000)
+PROMO_MAX_BYTES = 2_000_000
+ICON_SIZE = 512
+PROMO_LANGS = ("zh", "en")
+# The site is in English: the English set, else the Chinese one.
+SITE_LANGS = ("en", "zh")
+ROBOT_PHOTO_EXTENSIONS = ("webp", "jpg", "jpeg", "png")
+DEPRECATED_ROBOT_PHOTO = "deprecated: use assets/promo/01.jpg at 1600×1000 instead"
 # Indexing is almost entirely GitHub round trips, so entries are fetched
 # concurrently. Kept well under GitHub's concurrent-request guidance, which
 # asks callers to avoid bursts that trip the secondary rate limit.
@@ -147,7 +155,7 @@ def prepare_promo_images(public_dir: Path, packages: list[dict]) -> None:
         gallery = package["_gallery_images"] = {}
         for index, source_url in enumerate(package.get("promo_image_urls", []), 1):
             try:
-                source_bytes = download_bytes(source_url)
+                source_bytes = package.get("_image_bytes", {}).get(source_url) or download_bytes(source_url)
                 with Image.open(io.BytesIO(source_bytes)) as source:
                     source = ImageOps.exif_transpose(source).convert("RGB")
                     preview_dir.mkdir(parents=True, exist_ok=True)
@@ -277,39 +285,227 @@ def load_remote_submodule(
     return f"https://github.com/{match.group(1)}/{match.group(2)}", sha
 
 
-def load_remote_images(repo_url: str, branch: str, *, robot: bool) -> tuple[list[str], str]:
-    """Raw URLs of a repository's promo images, in filename order, and its icon.
+def artwork_problem(file: str, rule: str) -> dict:
+    return {"file": file, "rule": rule}
 
-    assets/promo/ holds up to PROMO_LIMIT images, the first shown on list
-    cards; assets/icon.* is an optional square icon. assets/robot.jpg is
-    deprecated: kept for compatibility, it stands in for a robot whose
-    assets/promo/ has no images. assets/ is listed once, and assets/promo/
-    only when it exists.
+
+def promo_layout(paths: list[str]) -> tuple[dict[str, list[str]], list[dict]]:
+    """The promo sets a repository's paths lay out, "" for the one without
+    text and "zh"/"en" for the per-language ones, each in order; or every
+    naming rule the layout breaks, with no sets."""
+    problems: list[dict] = []
+    sets: dict[str, dict[int, str]] = {}
+    for path in paths:
+        if not path.startswith("assets/promo/"):
+            continue
+        rel = path[len("assets/promo/"):]
+        if rel.rsplit("/", 1)[-1].startswith("."):
+            continue
+        parts = rel.split("/")
+        if len(parts) == 1:
+            group, file = "", parts[0]
+        elif len(parts) == 2 and parts[0] in PROMO_LANGS:
+            group, file = parts
+        else:
+            problems.append(artwork_problem(path, "only zh/ and en/ may be inside promo/"))
+            continue
+        match = re.fullmatch(r"(\d\d)\.(png|jpg)", file)
+        if not match:
+            problems.append(artwork_problem(path, "named 01.png to 10.png, or .jpg, in lower case"))
+            continue
+        number = int(match.group(1))
+        if not 1 <= number <= PROMO_SLOTS:
+            problems.append(artwork_problem(path, "numbered 01 to 10"))
+            continue
+        numbered = sets.setdefault(group, {})
+        if number in numbered:
+            problems.append(artwork_problem(path, f"another file is already number {number:02d}"))
+            continue
+        numbered[number] = path
+    for group in sorted(sets):
+        files = sets[group]
+        gap = next((n for n in range(1, len(files) + 1) if n not in files), None)
+        if gap:
+            folder = f"assets/promo/{group}/" if group else "assets/promo/"
+            problems.append(artwork_problem(folder, f"{gap:02d} is missing: numbers run from 01 without gaps"))
+    langs = any(lang in sets for lang in PROMO_LANGS)
+    if langs and "" in sets:
+        problems.append(artwork_problem(
+            "assets/promo/", "images without a language and zh/ or en/ together; use one or the other"))
+    if langs:
+        zh, en = (sorted(sets.get(lang, {})) for lang in PROMO_LANGS)
+        if zh != en:
+            problems.append(artwork_problem(
+                "assets/promo/", f"zh/ has {len(zh)} images and en/ has {len(en)}; both need the same numbers"))
+    if problems:
+        return {}, problems
+    return {group: [files[n] for n in sorted(files)] for group, files in sets.items()}, []
+
+
+# Format names as Hub prints them (Rust's image crate), so both say the same.
+FORMAT_NAMES = {"PNG": "Png", "JPEG": "Jpeg", "WEBP": "WebP", "GIF": "Gif", "BMP": "Bmp", "TIFF": "Tiff"}
+MODE_NAMES = {"L": "L8", "1": "L8", "I;16": "L16", "I": "L16", "CMYK": "Cmyk8", "YCbCr": "YCbCr8", "LAB": "Lab8"}
+
+
+def check_promo(path: str, data: bytes) -> list[dict]:
+    """What is wrong with one promo image: its bytes and pixels, its format
+    against its name, an alpha channel, and colour other than 8-bit sRGB
+    (a profile that does not name sRGB, Display P3 say)."""
+    out = []
+    if len(data) > PROMO_MAX_BYTES:
+        out.append(artwork_problem(path, f"{len(data) / 1e6:.1f} MB, at most 2 MB"))
+    want = "PNG" if path.endswith(".png") else "JPEG"
+    try:
+        image = Image.open(io.BytesIO(data))
+    except (UnidentifiedImageError, OSError):
+        return out + [artwork_problem(path, "not an image")]
+    with image:
+        if image.format != want:
+            name = FORMAT_NAMES.get(image.format or "", image.format or "unknown")
+            return out + [artwork_problem(path, f"a {name} file under a .{path.rsplit('.', 1)[1]} name")]
+        w, h = image.size
+        if (w, h) != PROMO_SIZE:
+            out.append(artwork_problem(path, f"{w}×{h}, expected {PROMO_SIZE[0]}×{PROMO_SIZE[1]}"))
+        mode = image.mode
+        alpha = mode in ("RGBA", "LA", "PA", "La", "RGBa") or (mode == "P" and "transparency" in image.info)
+        if alpha:
+            out.append(artwork_problem(path, "has an alpha channel"))
+        elif mode not in ("RGB", "P"):
+            out.append(artwork_problem(path, f"{MODE_NAMES.get(mode, mode)} pixels, expected 8-bit RGB"))
+        icc = image.info.get("icc_profile")
+        if icc and b"sRGB" not in icc:
+            out.append(artwork_problem(path, "colour profile is not sRGB"))
+    return out
+
+
+def check_icon(path: str, data: bytes) -> list[dict]:
+    """What is wrong with a supplied icon: an SVG document, or a PNG exactly
+    512×512."""
+    if path.endswith(".svg"):
+        try:
+            svg = "<svg" in data.decode("utf-8")
+        except UnicodeDecodeError:
+            svg = False
+        return [] if svg else [artwork_problem(path, "not an SVG document")]
+    try:
+        with Image.open(io.BytesIO(data)) as image:
+            if image.format != "PNG":
+                return [artwork_problem(path, "not a PNG file")]
+            w, h = image.size
+    except (UnidentifiedImageError, OSError):
+        return [artwork_problem(path, "not a PNG file")]
+    if (w, h) != (ICON_SIZE, ICON_SIZE):
+        return [artwork_problem(path, f"{w}×{h}, expected {ICON_SIZE}×{ICON_SIZE}")]
+    return []
+
+
+def check_artwork(paths: list[str], fetch) -> dict:
+    """Check a repository's artwork, given every path under assets/ and a
+    function from a path to its bytes (None when it cannot be read).
+
+    Returns the promo sets that pass ({"": [...]} or {"zh": [...], "en": [...]}),
+    the icon path when it passes, the deprecated robot photo when that stands
+    in, every problem, and the bytes read. Any problem in a set or the icon
+    drops all of it, never part. Absent artwork is not a problem.
+    """
+    problems: list[dict] = []
+    data: dict[str, bytes] = {}
+
+    def read(path: str) -> bytes | None:
+        if path not in data:
+            got = fetch(path)
+            if got is None:
+                problems.append(artwork_problem(path, "could not be fetched"))
+                return None
+            data[path] = got
+        return data[path]
+
+    icon = ""
+    icons = [p for p in paths if p.startswith("assets/icon.")]
+    odd = [p for p in icons if p not in ("assets/icon.svg", "assets/icon.png")]
+    if odd:
+        problems += [artwork_problem(p, "the icon is icon.svg or icon.png") for p in odd]
+    elif len(icons) > 1:
+        problems.append(artwork_problem("assets/", "both icon.svg and icon.png; keep one"))
+    elif icons:
+        found = read(icons[0])
+        if found is not None:
+            wrong = check_icon(icons[0], found)
+            problems += wrong
+            icon = "" if wrong else icons[0]
+
+    sets, wrong = promo_layout(paths)
+    problems += wrong
+    if sets:
+        before = len(problems)
+        for path in (p for group in sets.values() for p in group):
+            found = read(path)
+            if found is not None:
+                problems += check_promo(path, found)
+        if len(problems) > before:
+            sets = {}
+
+    robot = ""
+    if not any(p.startswith("assets/promo/") for p in paths):
+        robot = next((p for ext in ROBOT_PHOTO_EXTENSIONS
+                      if (p := f"assets/robot.{ext}") in paths), "")
+        if robot and read(robot) is not None:
+            problems.append(artwork_problem(robot, DEPRECATED_ROBOT_PHOTO))
+        else:
+            robot = ""
+    return {"promo": sets, "icon": icon, "robot": robot, "problems": problems, "data": data}
+
+
+def load_remote_images(repo_url: str, branch: str) -> dict:
+    """List a repository's assets/ through the Contents API, three levels
+    deep under promo/, and check it with check_artwork.
+
+    Returns the site's promo image URLs (the set without text, else the
+    English, else the Chinese one; the deprecated robot photo only without
+    promo/), the icon URL, the problems, and the bytes read by URL, so the
+    previews are made without a second download.
     """
     owner, repo = parse_repo(repo_url)
     ref = urllib.parse.quote(branch, safe="")
+    urls: dict[str, str] = {}
 
-    def files(path: str) -> dict[str, dict]:
+    def walk(path: str, depth: int) -> list[str]:
         payload = github_optional_json(
             f"https://api.github.com/repos/{owner}/{repo}/contents/{path}?ref={ref}"
         )
-        if not isinstance(payload, list):
-            return {}
-        return {e["name"]: e for e in payload if isinstance(e, dict) and isinstance(e.get("name"), str)}
+        found = []
+        for entry in payload if isinstance(payload, list) else []:
+            if not isinstance(entry, dict) or not isinstance(entry.get("name"), str):
+                continue
+            child = f"{path}/{entry['name']}"
+            if entry.get("type") == "file":
+                found.append(child)
+                urls[child] = entry.get("download_url") or ""
+            elif entry.get("type") == "dir" and depth and (path != "assets" or entry["name"] == "promo"):
+                found += walk(child, depth - 1)
+        return found
 
-    def url(entry: dict | None) -> str:
-        return (entry.get("download_url") or "") if entry and entry.get("type") == "file" else ""
+    def fetch(path: str) -> bytes | None:
+        url = urls.get(path)
+        for attempt in range(1, GITHUB_ATTEMPTS + 1):
+            try:
+                return download_bytes(url) if url else None
+            except (urllib.error.URLError, OSError):
+                if attempt < GITHUB_ATTEMPTS:
+                    time.sleep(GITHUB_RETRY_DELAY * attempt)
+        return None
 
-    assets = files("assets")
-    promo = []
-    if assets.get("promo", {}).get("type") == "dir":
-        listed = files("assets/promo")
-        names = sorted(n for n in listed if n.lower().endswith(PROMO_EXTENSIONS))
-        promo = [u for u in map(url, (listed[n] for n in names)) if u][:PROMO_LIMIT]
-    if not promo and robot and url(assets.get("robot.jpg")):
-        promo = [url(assets["robot.jpg"])]
-    icon = next((url(assets[n]) for n in ICON_NAMES if url(assets.get(n))), "")
-    return promo, icon
+    checked = check_artwork(walk("assets", 2), fetch)
+    sets = checked["promo"]
+    chosen = sets.get("") or next((sets[lang] for lang in SITE_LANGS if lang in sets), [])
+    if not chosen and checked["robot"]:
+        chosen = [checked["robot"]]
+    return {
+        "promo": [urls[p] for p in chosen],
+        "icon": urls.get(checked["icon"], ""),
+        "problems": checked["problems"],
+        "data": {urls[p]: b for p, b in checked["data"].items() if p in urls},
+    }
 
 
 def package_slug(name: str) -> str:
@@ -1031,6 +1227,26 @@ def report_deployment_warnings(packages: list[dict]) -> int:
     return len(warnings)
 
 
+def report_artwork_problems(packages: list[dict]) -> int:
+    """Print every package's artwork problems as warnings: their sets are
+    already dropped, so one package cannot break the site."""
+    problems = [(p["name"], problem) for p in packages for problem in p.get("_artwork_problems", [])]
+    github_actions = os.environ.get("GITHUB_ACTIONS", "").lower() == "true"
+    for package_name, problem in problems:
+        message = f"{package_name}: {problem['file']}: {problem['rule']}"
+        print(f"warning: {message}", file=sys.stderr)
+        if github_actions:
+            title = github_command_escape(f"Artwork: {package_name}")
+            print(f"::warning title={title}::{github_command_escape(message)}", file=sys.stderr)
+    summary_path = os.environ.get("GITHUB_STEP_SUMMARY")
+    if summary_path and problems:
+        lines = ["## Artwork report", "", "| Package | File | Rule |", "| --- | --- | --- |"]
+        lines += [f"| {markdown_cell(n)} | {markdown_cell(p['file'])} | {markdown_cell(p['rule'])} |" for n, p in problems]
+        with open(summary_path, "a", encoding="utf-8") as summary:
+            summary.write("\n".join(lines) + "\n")
+    return len(problems)
+
+
 def report_catalog_warnings(packages: list[dict]) -> int:
     warnings = [
         (package["name"], warning)
@@ -1136,7 +1352,15 @@ def collect_entry(
                 ),
             }
         )
-    promo_image_urls, icon_url = load_remote_images(repo, branch, robot=catalog_type == "robot")
+    images = load_remote_images(repo, branch)
+    promo_image_urls, icon_url = images["promo"], images["icon"]
+    artwork_problems = images["problems"]
+    # A new or changed entry fixes its artwork before it is merged; an entry
+    # already in the catalog has the set dropped and a warning in the log.
+    violations = [p for p in artwork_problems if p["rule"] != DEPRECATED_ROBOT_PHOTO]
+    if violations and not allow_name_mismatch:
+        fail(f"{name}: artwork breaks the spec (README.md, Images):\n" + "\n".join(
+            f"  {p['file']}: {p['rule']}" for p in violations))
     if catalog_type == "robot":
         cap_names = []
         if cached is None:
@@ -1196,13 +1420,7 @@ def collect_entry(
         deploy_dependencies = []
     kind = name.split(".")[1] if name.startswith("robonix.") and "." in name else ""
     problems = []
-    if catalog_type == "robot":
-        if not promo_image_urls:
-            problems.append({
-                "type": "missing_promo_image",
-                "reason": "no promo image; add one or more images under assets/promo/ (01.png, 02.jpg, ...)",
-            })
-    else:
+    if catalog_type != "robot":
         root_caps = None
         if manifest_path != "package_manifest.yaml" and cached is None:
             owner, _ = parse_repo(repo)
@@ -1244,6 +1462,8 @@ def collect_entry(
         "promo_image_urls": promo_image_urls,
         "icon_url": icon_url,
         "preview_image_url": promo_image_urls[0] if promo_image_urls else "",
+        "_artwork_problems": artwork_problems,
+        "_image_bytes": images["data"],
         "_readme_markdown": readme,
         "_source_warnings": source_warnings,
     }
@@ -2592,6 +2812,7 @@ def main() -> None:
     packages = collect(catalog_path, catalog_baseline_keys(catalog_path))
     report_catalog_warnings(packages)
     report_deployment_warnings(packages)
+    report_artwork_problems(packages)
     public = Path(args.public)
     if public.exists():
         shutil.rmtree(public)

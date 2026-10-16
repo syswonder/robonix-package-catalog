@@ -892,7 +892,8 @@ class DeploymentDependencyWarningTests(unittest.TestCase):
         ), mock.patch.object(
             BUILD_CATALOG,
             "load_remote_images",
-            return_value=(["https://raw.githubusercontent.com/syswonder/example-robot/main/assets/promo/01.png"], ""),
+            return_value={"promo": ["https://raw.githubusercontent.com/syswonder/example-robot/main/assets/promo/01.png"],
+                          "icon": "", "problems": [], "data": {}},
         ), mock.patch.object(
             BUILD_CATALOG.urllib.request, "urlopen", return_value=published(cached)
         ) as urlopen:
@@ -1220,53 +1221,139 @@ class ContractProblemsTest(unittest.TestCase):
         self.assertIn("does not exist", reasons[3])
 
 
+def encoded(size=(1600, 1000), mode="RGB", fmt="PNG", **params) -> bytes:
+    out = io.BytesIO()
+    Image.new(mode, size).save(out, fmt, **params)
+    return out.getvalue()
+
+
+SVG = b'<svg xmlns="http://www.w3.org/2000/svg"/>'
+
+
+class ArtworkSpecTest(unittest.TestCase):
+    """The artwork rules, worded as Robonix Hub's server/src/artwork.rs."""
+
+    def rules(self, problems):
+        return [f"{p['file']}: {p['rule']}" for p in problems]
+
+    def test_a_layout_is_read_in_order_by_set(self):
+        sets, problems = BUILD_CATALOG.promo_layout(
+            ["assets/icon.png", "assets/promo/02.jpg", "assets/promo/01.png", "assets/promo/.gitkeep"])
+        self.assertEqual((sets, problems), ({"": ["assets/promo/01.png", "assets/promo/02.jpg"]}, []))
+        sets, _ = BUILD_CATALOG.promo_layout(["assets/promo/zh/01.png", "assets/promo/en/01.png"])
+        self.assertEqual(sorted(sets), ["en", "zh"])
+        self.assertEqual(BUILD_CATALOG.promo_layout(["assets/icon.svg"]), ({}, []))
+
+    def test_a_layout_that_breaks_a_rule_names_the_file_and_the_rule(self):
+        layout = BUILD_CATALOG.promo_layout
+        self.assertEqual(self.rules(layout(
+            ["assets/promo/1.png", "assets/promo/01.PNG", "assets/promo/02.webp", "assets/promo/11.png"])[1]), [
+            "assets/promo/1.png: named 01.png to 10.png, or .jpg, in lower case",
+            "assets/promo/01.PNG: named 01.png to 10.png, or .jpg, in lower case",
+            "assets/promo/02.webp: named 01.png to 10.png, or .jpg, in lower case",
+            "assets/promo/11.png: numbered 01 to 10",
+        ])
+        self.assertEqual(self.rules(layout(
+            ["assets/promo/01.png", "assets/promo/01.jpg", "assets/promo/03.png"])[1]), [
+            "assets/promo/01.jpg: another file is already number 01",
+            "assets/promo/: 02 is missing: numbers run from 01 without gaps",
+        ])
+        sets, problems = layout(["assets/promo/01.png", "assets/promo/zh/01.png", "assets/promo/en/01.png",
+                                 "assets/promo/en/02.png", "assets/promo/fr/01.png"])
+        self.assertEqual(sets, {})
+        self.assertEqual(self.rules(problems), [
+            "assets/promo/fr/01.png: only zh/ and en/ may be inside promo/",
+            "assets/promo/: images without a language and zh/ or en/ together; use one or the other",
+            "assets/promo/: zh/ has 1 images and en/ has 2; both need the same numbers",
+        ])
+
+    def test_a_promo_image_is_exactly_1600_by_1000_opaque_srgb_and_named_for_its_format(self):
+        check = BUILD_CATALOG.check_promo
+        self.assertEqual(check("assets/promo/01.png", encoded()), [])
+        self.assertEqual(check("assets/promo/01.jpg", encoded(fmt="JPEG")), [])
+        rule = lambda path, data: [p["rule"] for p in check(path, data)]
+        self.assertEqual(rule("assets/promo/en/02.png", encoded((1920, 1080))), ["1920×1080, expected 1600×1000"])
+        self.assertEqual(rule("assets/promo/01.png", encoded(mode="RGBA")), ["has an alpha channel"])
+        self.assertEqual(rule("assets/promo/01.png", encoded(mode="L")), ["L8 pixels, expected 8-bit RGB"])
+        self.assertEqual(rule("assets/promo/01.jpg", encoded()), ["a Png file under a .jpg name"])
+        self.assertEqual(rule("assets/promo/01.png", b"text"), ["not an image"])
+        p3 = encoded(icc_profile=b"\0" * 40 + b"Display P3")
+        self.assertEqual(rule("assets/promo/01.png", p3), ["colour profile is not sRGB"])
+        self.assertEqual(rule("assets/promo/01.png", encoded(icc_profile=b"\0" * 40 + b"sRGB IEC61966-2.1")), [])
+        with mock.patch.object(BUILD_CATALOG, "PROMO_MAX_BYTES", 10):
+            self.assertIn("MB, at most 2 MB", rule("assets/promo/01.png", encoded())[0])
+
+    def test_an_icon_is_an_svg_or_a_512_png(self):
+        check = BUILD_CATALOG.check_icon
+        self.assertEqual(check("assets/icon.svg", SVG), [])
+        self.assertEqual(check("assets/icon.png", encoded((512, 512), "RGBA")), [])
+        self.assertEqual(check("assets/icon.png", encoded((256, 256)))[0]["rule"], "256×256, expected 512×512")
+        self.assertEqual(check("assets/icon.svg", b"<html>")[0]["rule"], "not an SVG document")
+
+    def checked(self, files: dict[str, bytes]):
+        return BUILD_CATALOG.check_artwork(list(files), files.get)
+
+    def test_any_violation_drops_the_whole_set_or_the_icon(self):
+        good = {"assets/icon.svg": SVG, "assets/promo/01.png": encoded(), "assets/promo/02.jpg": encoded(fmt="JPEG")}
+        result = self.checked(good)
+        self.assertEqual((result["promo"], result["icon"], result["problems"]),
+                         ({"": ["assets/promo/01.png", "assets/promo/02.jpg"]}, "assets/icon.svg", []))
+        result = self.checked({**good, "assets/promo/02.jpg": encoded((1920, 1080), fmt="JPEG"),
+                               "assets/icon.png": encoded((512, 512))})
+        self.assertEqual((result["promo"], result["icon"]), ({}, ""))
+        self.assertEqual(self.rules(result["problems"]), [
+            "assets/: both icon.svg and icon.png; keep one",
+            "assets/promo/02.jpg: 1920×1080, expected 1600×1000",
+        ])
+        self.assertEqual(self.rules(self.checked({"assets/icon.jpg": b"x"})["problems"]),
+                         ["assets/icon.jpg: the icon is icon.svg or icon.png"])
+
+    def test_absent_artwork_is_skipped_and_robot_jpg_stands_in_only_without_promo(self):
+        self.assertEqual(self.checked({"assets/README.md": b""})["problems"], [])
+        result = self.checked({"assets/robot.jpg": encoded((4000, 3000), fmt="JPEG")})
+        self.assertEqual(result["robot"], "assets/robot.jpg")
+        self.assertEqual(self.rules(result["problems"]),
+                         ["assets/robot.jpg: deprecated: use assets/promo/01.jpg at 1600×1000 instead"])
+        result = self.checked({"assets/robot.jpg": b"x", "assets/promo/01.png": encoded((10, 10))})
+        self.assertEqual((result["robot"], result["promo"]), ("", {}))
+
+
 class PromoImagesTest(unittest.TestCase):
     REPO = "https://github.com/example/robot-example"
     RAW = "https://raw.githubusercontent.com/example/robot-example/main/"
 
-    def listing(self, *names, kind="file", base="assets/"):
-        return [{"name": n, "type": "dir" if n == "promo" else kind,
-                 "download_url": None if n == "promo" else self.RAW + base + n} for n in names]
+    def listing(self, path, *names):
+        return [{"name": n, "type": "dir" if "." not in n else "file",
+                 "download_url": None if "." not in n else f"{self.RAW}{path}/{n}"} for n in names]
 
-    def images(self, assets, promo=None, *, robot=True):
+    def images(self, tree: dict, files: dict):
         def fetch(url, optional):
             self.assertTrue(optional)
-            if "/contents/assets/promo?" in url:
-                return promo
-            self.assertIn("/contents/assets?ref=main", url)
-            return assets
+            path = url.split("/contents/", 1)[1].split("?", 1)[0]
+            return tree.get(path)
 
-        with mock.patch.object(BUILD_CATALOG, "github_fetch", side_effect=fetch) as fetched:
-            result = BUILD_CATALOG.load_remote_images(self.REPO, "main", robot=robot)
-        return result, fetched.call_count
+        with mock.patch.object(BUILD_CATALOG, "github_fetch", side_effect=fetch), \
+                mock.patch.object(BUILD_CATALOG, "download_bytes", side_effect=lambda u: files[u[len(self.RAW):]]):
+            return BUILD_CATALOG.load_remote_images(self.REPO, "main")
 
-    def test_promo_images_in_filename_order_capped_at_ten(self):
-        names = [f"{i:02d}.{ext}" for i, ext in zip(range(12, 0, -1), ["png", "jpg", "JPEG", "webp"] * 3)]
-        promo = self.listing(*names, "notes.txt", base="assets/promo/")
-        promo.append({"name": "raw", "type": "dir", "download_url": None})
-        (urls, icon), calls = self.images(
-            self.listing("promo", "icon.png", "icon.svg", "robot.jpg"), promo)
+    def test_the_site_shows_the_english_set_and_keeps_the_bytes(self):
+        tree = {"assets": self.listing("assets", "promo", "icon.svg", "robot.jpg"),
+                "assets/promo": self.listing("assets/promo", "zh", "en"),
+                "assets/promo/zh": self.listing("assets/promo/zh", "01.png"),
+                "assets/promo/en": self.listing("assets/promo/en", "01.png")}
+        files = {"assets/icon.svg": SVG, "assets/promo/zh/01.png": encoded(), "assets/promo/en/01.png": encoded()}
+        got = self.images(tree, files)
+        self.assertEqual(got["promo"], [self.RAW + "assets/promo/en/01.png"])
+        self.assertEqual(got["icon"], self.RAW + "assets/icon.svg")
+        self.assertEqual(got["problems"], [])
+        self.assertIn(self.RAW + "assets/promo/en/01.png", got["data"])
 
-        self.assertEqual(calls, 2)
-        self.assertEqual([u.rsplit("/", 1)[1] for u in urls], sorted(names)[:10])
-        self.assertEqual(urls[0], self.RAW + "assets/promo/01.webp")
-        # robot.jpg only stands in when assets/promo/ has no images.
-        self.assertNotIn(self.RAW + "assets/robot.jpg", urls)
-        self.assertEqual(icon, self.RAW + "assets/icon.svg")
+    def test_the_deprecated_robot_photo_stands_in_without_promo(self):
+        got = self.images({"assets": self.listing("assets", "robot.jpg")}, {"assets/robot.jpg": encoded(fmt="JPEG")})
+        self.assertEqual(got["promo"], [self.RAW + "assets/robot.jpg"])
+        self.assertEqual(self.images({}, {}), {"promo": [], "icon": "", "problems": [], "data": {}})
 
-    def test_legacy_robot_jpg_is_the_robot_fallback(self):
-        (urls, icon), calls = self.images(self.listing("robot.jpg"))
-        self.assertEqual(calls, 1)
-        self.assertEqual(urls, [self.RAW + "assets/robot.jpg"])
-        self.assertEqual(icon, "")
-        (urls, _), _ = self.images(self.listing("promo", "robot.jpg"), self.listing("README.md"))
-        self.assertEqual(urls, [self.RAW + "assets/robot.jpg"])
-        (urls, _), _ = self.images(self.listing("robot.jpg"), robot=False)
-        self.assertEqual(urls, [])
-        # No assets/ directory at all is one 404 and no images.
-        self.assertEqual(self.images(None), (([], ""), 1))
-
-    def collect_robot(self, baseline: bool) -> list[dict]:
+    def collect(self, baseline: bool, images: dict) -> list[dict]:
         entry = {"name": "robonix.robot.example", "repo": self.REPO,
                  "_catalog_type": "robot", "manifest": "robonix_manifest.yaml"}
         manifest = {"catalog": {
@@ -1276,28 +1363,28 @@ class PromoImagesTest(unittest.TestCase):
         baseline_keys = {BUILD_CATALOG.catalog_entry_key(entry)} if baseline else set()
         with mock.patch.object(BUILD_CATALOG, "read_catalog", return_value=[entry]), \
                 mock.patch.object(BUILD_CATALOG, "load_remote_manifest", return_value=("main", manifest, "")), \
-                mock.patch.object(BUILD_CATALOG, "load_remote_images", return_value=([], "")):
+                mock.patch.object(BUILD_CATALOG, "load_remote_images", return_value=images):
             return BUILD_CATALOG.collect(Path("catalog.yaml"), baseline_keys)
 
-    def test_robot_without_promo_image_fails_new_entries_and_warns_on_its_page(self):
-        with self.assertRaises(SystemExit):
-            self.collect_robot(baseline=False)
-        robot = self.collect_robot(baseline=True)[0]
-        self.assertEqual(robot["catalog_status"], "warning")
-        self.assertEqual([w["type"] for w in robot["catalog_warnings"]], ["missing_promo_image"])
-        self.assertEqual((robot["promo_image_urls"], robot["icon_url"], robot["preview_image_url"]), ([], "", ""))
+    def test_a_new_entry_breaking_the_spec_fails_and_a_listed_one_only_warns(self):
+        bad = {"promo": [], "icon": "", "data": {},
+               "problems": [{"file": "assets/promo/01.png", "rule": "1920×1080, expected 1600×1000"}]}
+        with self.assertRaises(SystemExit), mock.patch("sys.stderr", new=io.StringIO()) as err:
+            self.collect(baseline=False, images=bad)
+        self.assertIn("assets/promo/01.png: 1920×1080, expected 1600×1000", err.getvalue())
+        robot = self.collect(baseline=True, images=bad)[0]
+        self.assertEqual(robot["catalog_status"], "ok")
+        self.assertEqual(robot["promo_image_urls"], [])
+        with mock.patch("sys.stderr", new=io.StringIO()) as err:
+            self.assertEqual(BUILD_CATALOG.report_artwork_problems([robot]), 1)
+        self.assertIn("robonix.robot.example: assets/promo/01.png: 1920×1080", err.getvalue())
 
-        with tempfile.TemporaryDirectory() as tmp:
-            public = Path(tmp)
-            BUILD_CATALOG.render_listing_page(public, "2026-10-14T00:00:00+00:00", [robot], page="robots",
-                                              title="Robot deployments", lede="", noun="robot deployments")
-            BUILD_CATALOG.render_package_pages(public, "2026-10-14T00:00:00+00:00", [robot])
-            listing = (public / "robots" / "index.html").read_text()
-            detail = (public / "robots" / "robonix.robot.example" / "index.html").read_text()
-
-        self.assertNotIn("no promo image", listing)
-        self.assertIn("no promo image", detail)
-        self.assertNotIn("promo-gallery", detail)
+    def test_a_robot_needs_no_promo_image(self):
+        none = {"promo": [], "icon": "", "problems": [], "data": {}}
+        robot = self.collect(baseline=False, images=none)[0]
+        self.assertEqual((robot["catalog_status"], robot["promo_image_urls"]), ("ok", []))
+        deprecated = {**none, "problems": [{"file": "assets/robot.jpg", "rule": BUILD_CATALOG.DEPRECATED_ROBOT_PHOTO}]}
+        self.assertEqual(self.collect(baseline=False, images=deprecated)[0]["catalog_status"], "ok")
 
     def test_card_shows_the_first_promo_image_only_when_there_is_one(self):
         package = {
