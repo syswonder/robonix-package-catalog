@@ -733,6 +733,40 @@ def collect_capabilities(package_name: str, manifest: dict) -> list[str]:
     return cap_names
 
 
+TRANSPORTS = ("mcp", "grpc", "ros2")
+TRANSPORT_NAMES = {"mcp": "MCP", "grpc": "gRPC", "ros2": "ROS 2"}
+
+
+def capability_transports(manifest: dict) -> dict[str, list[str]]:
+    """Each capability's declared transports, as a list (`transport: mcp` or
+    `transport: [grpc, ros2]`); capabilities that declare none are left out."""
+    out = {}
+    for cap in manifest.get("capabilities") or []:
+        value = cap.get("transport") if isinstance(cap, dict) else None
+        if value is not None:
+            out[cap["name"]] = [value] if isinstance(value, str) else list(value)
+    return out
+
+
+def transport_problems(manifest: dict) -> list[dict]:
+    """A capability must say how the package serves it, so the catalog can
+    tell readers without running the package."""
+    problems = []
+    declared = capability_transports(manifest)
+    for cap in manifest.get("capabilities") or []:
+        name = cap.get("name") if isinstance(cap, dict) else None
+        if not isinstance(name, str):
+            continue
+        values = declared.get(name)
+        if values is None:
+            problems.append({"type": "missing_transport",
+                             "reason": f"capability {name} declares no transport (mcp, grpc or ros2)"})
+        elif not values or len(set(values)) != len(values) or any(v not in TRANSPORTS for v in values):
+            problems.append({"type": "invalid_transport",
+                             "reason": f"capability {name} transport must be mcp, grpc or ros2, or a list of them without repeats"})
+    return problems
+
+
 KINDS = ("primitive", "service", "skill")
 
 
@@ -1507,6 +1541,7 @@ def collect_entry(
         problems = layout_problems(kind, cap_names, root_caps, manifest_path)
         if kind in KINDS:
             problems += contract_problems(repo, branch, manifest, manifest_path, path)
+            problems += transport_problems(manifest)
     for problem in problems:
         # A new or changed entry has to fix this before it is merged; an
         # entry already in the catalog is listed with a warning.
@@ -1530,6 +1565,7 @@ def collect_entry(
         "catalog_warnings": catalog_warnings,
         "manifest": manifest_path,
         "capabilities": cap_names,
+        "transports": capability_transports(manifest) if catalog_type != "robot" else {},
         "provides": group_capabilities(kind, cap_names),
         "deploy_dependencies": deploy_dependencies,
         "readme_url": absolute_readme_url("README.md", repo, branch, raw=False, path=path),
@@ -2595,6 +2631,15 @@ def enable_markdown_in_html_divs(md: str) -> str:
     return "".join(rendered_lines)
 
 
+def capability_item(package: dict, contract: str) -> str:
+    """One capability on a package page, with the transports it is served over."""
+    transports = package.get("transports", {}).get(contract, [])
+    tags = "".join(
+        f' <span class="cap-transport">{html.escape(TRANSPORT_NAMES.get(t, t))}</span>' for t in transports
+    )
+    return f"<li>{html.escape(contract)}{tags}</li>"
+
+
 def render_markdown(md: str, repo_url: str, branch: str, path: str = "") -> str:
     if not md.strip():
         return "<p>No README.md was found in this package repository.</p>"
@@ -2733,7 +2778,7 @@ def render_package_pages(public_dir: Path, generated_at: str, packages: list[dic
                 parts = []
                 for g in groups:
                     grouped.update(g["capabilities"])
-                    caps = "".join(f"<li>{html.escape(c)}</li>" for c in g["capabilities"])
+                    caps = "".join(capability_item(p, c) for c in g["capabilities"])
                     parts.append(
                         f'<li class="cap-group"><span class="cap-group-name">'
                         f'{html.escape(g["namespace"].rsplit("/", 1)[-1])}</span>'
@@ -2741,14 +2786,14 @@ def render_package_pages(public_dir: Path, generated_at: str, packages: list[dic
                     )
                 rest = [c for c in p["capabilities"] if c not in grouped]
                 if rest:
-                    caps = "".join(f"<li>{html.escape(c)}</li>" for c in rest)
+                    caps = "".join(capability_item(p, c) for c in rest)
                     parts.append(f'<li class="cap-group"><span class="cap-group-name">other</span>'
                                  f'<ul class="cap-list">{caps}</ul></li>')
                 provides = "".join(parts)
                 provides_class = "cap-groups"
             else:
                 provides_title = "Capabilities"
-                provides = "".join(f"<li>{html.escape(c)}</li>" for c in p["capabilities"])
+                provides = "".join(capability_item(p, c) for c in p["capabilities"])
                 provides_class = "cap-list"
             empty_note = "This package declares no capability contracts."
         provides_block = (

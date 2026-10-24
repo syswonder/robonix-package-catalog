@@ -1593,3 +1593,29 @@ class PromoImagesTest(unittest.TestCase):
         self.assertIn(f'<a href="{urls[0]}"><img src="../../assets/previews/robonix.skill.example-1-1280.webp"', gallery)
         self.assertIn('width="1280" height="720"', gallery)
         self.assertIn(f'<a href="{urls[1]}"><img src="{urls[1]}"', gallery)
+
+
+class CapabilityTransportTests(unittest.TestCase):
+    def test_reads_one_or_several_transports(self):
+        manifest = {"capabilities": [
+            {"name": "a/b/c", "transport": "mcp"},
+            {"name": "a/b/d", "transport": ["grpc", "ros2"]},
+            {"name": "a/b/e"},
+        ]}
+        self.assertEqual(BUILD_CATALOG.capability_transports(manifest),
+                         {"a/b/c": ["mcp"], "a/b/d": ["grpc", "ros2"]})
+        problems = BUILD_CATALOG.transport_problems(manifest)
+        self.assertEqual([p["type"] for p in problems], ["missing_transport"])
+        self.assertIn("a/b/e", problems[0]["reason"])
+
+    def test_rejects_unknown_or_repeated_transports(self):
+        for bad in ("http", ["grpc", "grpc"], []):
+            manifest = {"capabilities": [{"name": "a/b/c", "transport": bad}]}
+            self.assertEqual([p["type"] for p in BUILD_CATALOG.transport_problems(manifest)],
+                             ["invalid_transport"], bad)
+
+    def test_page_lists_each_capabilitys_transports(self):
+        package = {"transports": {"a/b/c": ["grpc", "ros2"]}}
+        self.assertEqual(BUILD_CATALOG.capability_item(package, "a/b/c"),
+                         '<li>a/b/c <span class="cap-transport">gRPC</span> <span class="cap-transport">ROS 2</span></li>')
+        self.assertEqual(BUILD_CATALOG.capability_item(package, "a/b/d"), "<li>a/b/d</li>")

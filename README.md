@@ -89,6 +89,7 @@ Package object fields:
 | `catalog_type` | string | `package` for ordinary packages, `robot` for whole-robot deployments |
 | `manifest` | string | source manifest path relative to the package directory, usually `package_manifest.yaml` or `robonix_manifest.yaml` |
 | `capabilities` | string[] | declared Robonix contract IDs |
+| `transports` | object | each capability's transports from the manifest, e.g. `{"robonix/service/navigation/navigate": ["mcp", "grpc"]}`; a capability that declares none is absent |
 | `deploy_dependencies` | object[] | robot deployment dependencies parsed from `robonix_manifest.yaml` |
 | `deployment_status` | string | robot dependency health: `ok` or `warning` |
 | `deployment_warnings` | object[] | robot manifest or dependency warnings with section, name, source, and reason |
@@ -166,6 +167,8 @@ detail = json.load(urllib.request.urlopen(f"{base}/package/{mapping['name']}.jso
 
 Each package must provide `package_manifest.yaml` at its catalog `path`, or at
 the repository root when `path` is omitted.
+Each capability in it names its transport (`transport: mcp`, `grpc` or `ros2`, or a list such as `[grpc, ros2]` when the package serves the contract over several), so readers know how to call it without running the package. A new or changed catalog entry whose capabilities do not all declare a valid transport is rejected; entries already listed are kept with a warning.
+
 The catalog builder reads these fields from that file:
 
 - `package.name`

@@ -889,6 +889,17 @@ html[data-prefilter-kind="robot"] [data-entry]:not([data-kind="robot"]) { displa
   border-radius: var(--bs-border-radius-sm);
   word-break: break-all;
 }
+.cap-transport {
+  display: inline-block;
+  margin-left: 0.4rem;
+  padding: 0 0.35rem;
+  font-family: var(--bs-body-font-family);
+  font-size: 0.75rem;
+  color: var(--bs-body-color);
+  background: var(--bs-tertiary-bg);
+  border-radius: var(--bs-border-radius-sm);
+  word-break: normal;
+}
 
 .cap-groups { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 0.85rem; }
 .cap-groups .cap-group-name {
