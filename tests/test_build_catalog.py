@@ -464,6 +464,9 @@ class CatalogMetadataTests(unittest.TestCase):
                 BUILD_CATALOG,
                 "load_remote_manifest",
                 return_value=("main", {"package": metadata, "capabilities": []}, ""),
+            ), mock.patch.object(
+                BUILD_CATALOG, "load_remote_images",
+                return_value={"promo": [], "icon": "", "problems": [], "data": {}},
             ):
                 packages = BUILD_CATALOG.collect(catalog, baseline_keys)
                 catalog.write_text(
@@ -557,7 +560,152 @@ class CatalogMetadataTests(unittest.TestCase):
         self.assertIn('"manifest_name_mismatch"', api_data)
 
 
+class PackagePathTests(unittest.TestCase):
+    REPO = "https://github.com/syswonder/robonix"
+    ENTRY = {"name": "robonix.service.memory", "repo": REPO, "path": "services/memory"}
+    META = {
+        "name": "robonix.service.memory", "version": "0.1.0", "description": "Memory service",
+        "license": "Apache-2.0", "tags": ["service"], "maintainers": ["Example <example@example.com>"],
+    }
+
+    def test_paths_are_package_directories(self):
+        entries = BUILD_CATALOG.parse_catalog({"packages": [self.ENTRY]})
+        self.assertEqual(BUILD_CATALOG.validate_catalog_entries(entries)[0]["path"], "services/memory")
+        for path in (None, 1, "", "/services/memory", "services/memory/", ".", "..",
+                     "services/../memory", "services/./memory", "services//memory",
+                     "services\\memory", "C:/memory", " services/memory"):
+            with self.subTest(path=path), self.assertRaises(SystemExit), \
+                    mock.patch("sys.stderr", new=io.StringIO()):
+                BUILD_CATALOG.validate_catalog_entries([{**self.ENTRY, "path": path}])
+        robot = {**self.ENTRY, "name": "robonix.robot.example", "_catalog_type": "robot"}
+        with self.assertRaises(SystemExit), mock.patch("sys.stderr", new=io.StringIO()):
+            BUILD_CATALOG.validate_catalog_entries([robot])
+
+    def test_repository_path_pairs_and_names_are_unique(self):
+        sibling = {**self.ENTRY, "name": "robonix.service.speech", "path": "services/speech"}
+        root = {"name": "robonix.service.root", "repo": self.REPO}
+        self.assertEqual(BUILD_CATALOG.validate_catalog_entries([self.ENTRY, sibling, root]),
+                         [self.ENTRY, sibling, root])
+        for duplicate in ({**self.ENTRY, "name": "robonix.service.other"},
+                          {**sibling, "name": self.ENTRY["name"]}):
+            with self.subTest(duplicate=duplicate), self.assertRaises(SystemExit), \
+                    mock.patch("sys.stderr", new=io.StringIO()):
+                BUILD_CATALOG.validate_catalog_entries([self.ENTRY, duplicate])
+        with self.assertRaises(SystemExit), mock.patch("sys.stderr", new=io.StringIO()):
+            BUILD_CATALOG.validate_catalog_entries([root, {**root, "name": "robonix.service.other"}])
+
+    def test_pr_baseline_includes_the_package_path(self):
+        base = "packages:\n  - name: robonix.service.memory\n    repo: " + self.REPO + "\n    path: services/memory\n"
+        with mock.patch.dict(BUILD_CATALOG.os.environ, {
+            "GITHUB_EVENT_NAME": "pull_request", "GITHUB_REPOSITORY": "syswonder/robonix-package-catalog",
+        }), mock.patch.object(BUILD_CATALOG, "read_catalog", return_value=[self.ENTRY]), \
+                mock.patch.object(BUILD_CATALOG, "pull_request_base_ref", return_value="base-sha"), \
+                mock.patch.object(BUILD_CATALOG, "load_remote_text", return_value=base) as read:
+            keys = BUILD_CATALOG.catalog_baseline_keys(Path("catalog.yaml"))
+        read.assert_called_once_with("syswonder", "robonix-package-catalog", "catalog.yaml", "base-sha", required=True)
+        self.assertIn(BUILD_CATALOG.catalog_entry_key(self.ENTRY), keys)
+        for path in ("services/speech", ""):
+            self.assertNotIn(BUILD_CATALOG.catalog_entry_key({**self.ENTRY, "path": path}), keys)
+        with mock.patch.object(BUILD_CATALOG, "load_remote_manifest",
+                               return_value=("dev", {"package": {**self.META, "name": "wrong"}}, "")), \
+                mock.patch.object(BUILD_CATALOG, "load_remote_images",
+                                  return_value={"promo": [], "icon": "", "problems": [], "data": {}}), \
+                self.assertRaises(SystemExit), mock.patch("sys.stderr", new=io.StringIO()):
+            BUILD_CATALOG.collect_entry({**self.ENTRY, "path": "services/moved"}, keys)
+
+    def test_manifest_readme_and_default_manifest_are_relative_to_package(self):
+        for path in ("", "services/memory"):
+            for manifest in ("package_manifest.yaml", "deploy/package_manifest.yaml"):
+                with self.subTest(path=path, manifest=manifest):
+                    entry = {"name": self.ENTRY["name"], "repo": self.REPO, "manifest": manifest}
+                    if path:
+                        entry["path"] = path
+                    prefix = f"{path}/" if path else ""
+                    readme = "[Config](config.spec)\n\n![Icon](assets/icon.svg)"
+                    def read(_owner, _repo, file, _branch, *, required):
+                        if file == prefix + "README.md":
+                            self.assertFalse(required)
+                            return readme
+                        self.assertIn(file, (prefix + manifest, prefix + "package_manifest.yaml"))
+                        return BUILD_CATALOG.yaml.safe_dump({"package": self.META, "capabilities": []})
+
+                    with mock.patch.object(BUILD_CATALOG, "github_json", return_value={"default_branch": "dev"}), \
+                            mock.patch.object(BUILD_CATALOG, "load_remote_text", side_effect=read) as load, \
+                            mock.patch.object(BUILD_CATALOG, "load_remote_images",
+                                              return_value={"promo": [], "icon": "", "problems": [], "data": {}}) as images:
+                        package = BUILD_CATALOG.collect_entry(entry, set())
+                    load.assert_any_call("syswonder", "robonix", prefix + manifest, "dev", required=True)
+                    if manifest != "package_manifest.yaml":
+                        load.assert_any_call("syswonder", "robonix", prefix + "package_manifest.yaml", "dev", required=False)
+                    images.assert_called_once_with(self.REPO, "dev", path)
+                    self.assertEqual(package.get("path", ""), path)
+                    self.assertEqual("path" in package, bool(path))
+                    self.assertEqual(package["readme_url"], f"{self.REPO}/blob/dev/{prefix}README.md")
+                    with tempfile.TemporaryDirectory() as tmp:
+                        public = Path(tmp)
+                        BUILD_CATALOG.render_package_pages(public, "2026-10-24", [package])
+                        detail = (public / "packages" / self.ENTRY["name"] / "index.html").read_text()
+                        BUILD_CATALOG.write_json(public / "package.json", {k: v for k, v in package.items() if not k.startswith("_")})
+                        data = json.loads((public / "package.json").read_text())
+                    source = f"{self.REPO}/tree/dev/{path}" if path else self.REPO
+                    self.assertIn(f'href="{source}"', detail)
+                    self.assertIn(f'href="{self.REPO}/blob/dev/{prefix}README.md"', detail)
+                    self.assertIn(f'href="{self.REPO}/blob/dev/{prefix}config.spec"', detail)
+                    self.assertIn(f'src="https://raw.githubusercontent.com/syswonder/robonix/dev/{prefix}assets/icon.svg"', detail)
+                    self.assertEqual(data.get("path", ""), path)
+
+    def test_invalid_yaml_reads_the_package_readme(self):
+        with mock.patch.object(BUILD_CATALOG, "github_json", return_value={"default_branch": "dev"}), \
+                mock.patch.object(BUILD_CATALOG, "load_remote_text", side_effect=["package: [", "Package README"]) as read:
+            with self.assertRaises(BUILD_CATALOG.InvalidRemoteManifestError) as error:
+                BUILD_CATALOG.load_remote_manifest(self.REPO, "package_manifest.yaml", "services/memory")
+        self.assertEqual(error.exception.readme, "Package README")
+        read.assert_called_with("syswonder", "robonix", "services/memory/README.md", "dev", required=False)
+
+
 class DeploymentDependencyWarningTests(unittest.TestCase):
+    def test_source_dependencies_match_the_repository_and_package_path(self):
+        source_repo = BUILD_CATALOG.ROBONIX_SOURCE_REPO
+        packages = [
+            {"name": "robonix.service.memory", "repo": source_repo, "path": "services/memory"},
+            {"name": "robonix.service.speech", "repo": source_repo, "path": "services/speech"},
+            {"name": "robonix.service.other", "repo": "https://github.com/example/other", "path": "services/other"},
+        ]
+        robot = {"name": "robonix.robot.example", "repo": "https://github.com/example/robot",
+                 "default_branch": "main", "catalog_type": "robot",
+                 "deploy_dependencies": BUILD_CATALOG.collect_deploy_dependencies("robonix.robot.example", {
+                     "service": [
+                         {"name": "memory", "path": "${ROBONIX_SOURCE_PATH}/services/memory"},
+                         {"name": "speech", "path": "${ROBONIX_SOURCE_PATH}/services/speech"},
+                         {"name": "other", "path": "${ROBONIX_SOURCE_PATH}/services/other"},
+                         {"name": "url", "url": source_repo, "path": "${ROBONIX_SOURCE_PATH}/services/memory"},
+                     ],
+                 })}
+        packages.append(robot)
+        BUILD_CATALOG.annotate_deploy_dependencies(packages)
+        memory, speech, other, url = robot["deploy_dependencies"]
+        for dep in (memory, speech):
+            self.assertEqual(dep["resolution"], "catalog")
+            self.assertEqual(dep["package_name"], f"robonix.service.{dep['name']}")
+            self.assertEqual(dep["package_url"], f"../robonix.service.{dep['name']}/")
+        self.assertEqual(other["resolution"], "robonix_source")
+        self.assertEqual(url["resolution"], "unresolved")
+        for path in ("services/memory/", "services/./memory"):
+            self.assertEqual(BUILD_CATALOG.classify_deploy_dependency(
+                {"path": "${ROBONIX_SOURCE_PATH}/" + path},
+                {(source_repo, "services/memory"): "robonix.service.memory"},
+            ), ("catalog", "robonix.service.memory", ""))
+        tree = {"services/memory": "tree", "services/memory/package_manifest.yaml": "blob"}
+        with mock.patch.object(BUILD_CATALOG, "load_remote_default_branch", return_value="dev"), \
+                mock.patch.object(BUILD_CATALOG, "load_remote_repository_tree", return_value=tree) as load:
+            BUILD_CATALOG.validate_deploy_dependency_paths(packages)
+        load.assert_called_once_with(source_repo, "dev")
+        self.assertEqual(memory["resolution_warning"], "")
+        self.assertIn("does not exist", speech["resolution_warning"])
+        packages.insert(0, {"name": "robonix.service.root", "repo": source_repo})
+        BUILD_CATALOG.annotate_deploy_dependencies(packages)
+        self.assertEqual(url["package_name"], "robonix.service.root")
+
     def test_load_remote_submodule_resolves_canonical_pinned_repository(self):
         payload = {
             # GitHub documents this legacy "file" value for submodules.
@@ -1183,13 +1331,27 @@ class ContractProblemsTest(unittest.TestCase):
     ROBONIX = ({"robonix/primitive/lidar/lidar"}, {"lidar/srv/Snap.srv"}, ("common_interfaces/",))
     REPO = "https://github.com/example/primitive-example-rbnx"
 
-    def problems(self, caps, files):
+    def problems(self, caps, files, path=""):
         tree = {path: "blob" for path in files}
         with mock.patch.object(BUILD_CATALOG, "robonix_contracts", return_value=self.ROBONIX), \
                 mock.patch.object(BUILD_CATALOG, "load_remote_repository_tree", return_value=tree), \
                 mock.patch.object(BUILD_CATALOG, "raw_text", side_effect=lambda _r, _b, p: files[p]):
             return BUILD_CATALOG.contract_problems(self.REPO, "main", {"capabilities": caps},
-                                                   "package_manifest.yaml")
+                                                   "package_manifest.yaml", path)
+
+    def test_contracts_and_idl_are_scoped_to_the_package_directory(self):
+        files = {
+            "services/memory/capabilities/a.toml": '[contract]\nid = "robonix/service/memory/a"\nidl = "srv/A.srv"\n',
+            "services/memory/capabilities/lib/srv/A.srv": "",
+            "services/speech/capabilities/b.toml": '[contract]\nid = "robonix/service/speech/b"\n',
+            "capabilities/c.toml": '[contract]\nid = "robonix/service/root/c"\n',
+        }
+        caps = [{"name": "robonix/service/memory/a", "path": "capabilities/a.toml"}]
+        self.assertEqual(self.problems(caps, files, "services/memory"), [])
+        caps += [{"name": "robonix/service/speech/b"}, {"name": "robonix/service/root/c"}]
+        self.assertEqual(len(self.problems(caps, files, "services/memory")), 2)
+        del files["services/memory/capabilities/lib/srv/A.srv"]
+        self.assertIn("IDL srv/A.srv", self.problems(caps[:1], files, "services/memory")[0]["reason"])
 
     def test_misspelled_prefix_is_reported(self):
         problems = self.problems([{"name": "robinix/primitive/lidar/lidar"}], {})
@@ -1340,7 +1502,7 @@ class PromoImagesTest(unittest.TestCase):
         return [{"name": n, "type": "dir" if "." not in n else "file",
                  "download_url": None if "." not in n else f"{self.RAW}{path}/{n}"} for n in names]
 
-    def images(self, tree: dict, files: dict):
+    def images(self, tree: dict, files: dict, path=""):
         def fetch(url, optional):
             self.assertTrue(optional)
             path = url.split("/contents/", 1)[1].split("?", 1)[0]
@@ -1348,7 +1510,17 @@ class PromoImagesTest(unittest.TestCase):
 
         with mock.patch.object(BUILD_CATALOG, "github_fetch", side_effect=fetch), \
                 mock.patch.object(BUILD_CATALOG, "download_bytes", side_effect=lambda u: files[u[len(self.RAW):]]):
-            return BUILD_CATALOG.load_remote_images(self.REPO, "main")
+            return BUILD_CATALOG.load_remote_images(self.REPO, "main", path)
+
+    def test_artwork_is_read_under_the_package_directory(self):
+        path = "services/memory"
+        tree = {f"{path}/assets": self.listing(f"{path}/assets", "promo", "icon.svg"),
+                f"{path}/assets/promo": self.listing(f"{path}/assets/promo", "01.png")}
+        files = {f"{path}/assets/icon.svg": SVG, f"{path}/assets/promo/01.png": encoded()}
+        got = self.images(tree, files, path)
+        self.assertEqual(got["icon"], f"{self.RAW}{path}/assets/icon.svg")
+        self.assertEqual(got["promo"], [f"{self.RAW}{path}/assets/promo/01.png"])
+        self.assertEqual(got["problems"], [])
 
     def test_the_site_shows_the_english_set_and_keeps_the_bytes(self):
         tree = {"assets": self.listing("assets", "promo", "icon.svg", "robot.jpg"),

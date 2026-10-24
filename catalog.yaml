@@ -1,4 +1,22 @@
 packages:
+  - name: robonix.service.memgraph
+    repo: https://github.com/syswonder/robonix
+    path: services/memory
+  - name: robonix.service.memsearch
+    repo: https://github.com/syswonder/robonix
+    path: services/memsearch
+  - name: robonix.service.speech
+    repo: https://github.com/syswonder/robonix
+    path: services/speech
+  - name: robonix.service.voiceprint
+    repo: https://github.com/syswonder/robonix
+    path: services/voiceprint
+  - name: robonix.service.scene_verifier
+    repo: https://github.com/syswonder/robonix
+    path: services/verifiers/scene_verifier
+  - name: robonix.service.vlm_verifier
+    repo: https://github.com/syswonder/robonix
+    path: services/verifiers/vlm_verifier
   - name: robonix.skill.unitree.go2.sport_actions
     repo: https://github.com/syswonder/skill-unitree-go2-sport-actions-rbnx
   - name: robonix.primitive.mirrorme.bpx.quadruped

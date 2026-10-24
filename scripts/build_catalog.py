@@ -187,6 +187,8 @@ def parse_repo(url: str) -> tuple[str, str]:
 
 
 def load_remote_text(owner: str, repo: str, path: str, branch: str, *, required: bool) -> str:
+    path = urllib.parse.quote(path, safe="/")
+    branch = urllib.parse.quote(branch, safe="")
     if required:
         content = github_json(
             f"https://api.github.com/repos/{owner}/{repo}/contents/{path}?ref={branch}"
@@ -204,17 +206,17 @@ def load_remote_text(owner: str, repo: str, path: str, branch: str, *, required:
     return base64.b64decode(content["content"]).decode("utf-8")
 
 
-def load_remote_manifest(repo_url: str, manifest_path: str) -> tuple[str, dict, str]:
+def load_remote_manifest(repo_url: str, manifest_path: str, path: str = "") -> tuple[str, dict, str]:
     owner, repo = parse_repo(repo_url)
     meta = github_json(f"https://api.github.com/repos/{owner}/{repo}")
     branch = meta.get("default_branch")
     if not branch:
         fail(f"{repo_url}: missing default_branch")
-    raw = load_remote_text(owner, repo, manifest_path, branch, required=True)
+    raw = load_remote_text(owner, repo, posixpath.join(path, manifest_path), branch, required=True)
     try:
         manifest = yaml.safe_load(raw) or {}
     except yaml.YAMLError as e:
-        readme = load_remote_text(owner, repo, "README.md", branch, required=False)
+        readme = load_remote_text(owner, repo, posixpath.join(path, "README.md"), branch, required=False)
         mark = getattr(e, "problem_mark", None)
         location = (
             f" at line {mark.line + 1}, column {mark.column + 1}" if mark else ""
@@ -225,7 +227,7 @@ def load_remote_manifest(repo_url: str, manifest_path: str) -> tuple[str, dict, 
             branch=branch,
             readme=readme,
         ) from e
-    readme = load_remote_text(owner, repo, "README.md", branch, required=False)
+    readme = load_remote_text(owner, repo, posixpath.join(path, "README.md"), branch, required=False)
     return branch, manifest, readme
 
 
@@ -508,7 +510,7 @@ def check_artwork(paths: list[str], fetch) -> dict:
     return {"promo": sets, "icon": icon, "robot": robot, "problems": problems, "data": data}
 
 
-def load_remote_images(repo_url: str, branch: str) -> dict:
+def load_remote_images(repo_url: str, branch: str, path: str = "") -> dict:
     """List a repository's assets/ through the Contents API, three levels
     deep under promo/, and check it with check_artwork.
 
@@ -519,11 +521,12 @@ def load_remote_images(repo_url: str, branch: str) -> dict:
     """
     owner, repo = parse_repo(repo_url)
     ref = urllib.parse.quote(branch, safe="")
+    prefix = f"{path}/" if path else ""
     urls: dict[str, str] = {}
 
     def walk(path: str, depth: int) -> list[str]:
         payload = github_optional_json(
-            f"https://api.github.com/repos/{owner}/{repo}/contents/{path}?ref={ref}"
+            f"https://api.github.com/repos/{owner}/{repo}/contents/{urllib.parse.quote(prefix + path, safe='/')}?ref={ref}"
         )
         found = []
         for entry in payload if isinstance(payload, list) else []:
@@ -587,7 +590,7 @@ def read_catalog(path: Path) -> list[dict]:
     return parse_catalog(yaml.safe_load(path.read_text()) or {})
 
 
-def catalog_entry_key(entry: dict) -> tuple[str, str, str, str] | None:
+def catalog_entry_key(entry: dict) -> tuple[str, str, str, str, str] | None:
     """Return the fields that make a catalog entry unchanged from the base."""
     if not isinstance(entry, dict):
         return None
@@ -605,9 +608,10 @@ def catalog_entry_key(entry: dict) -> tuple[str, str, str, str] | None:
             if catalog_type == "robot"
             else "package_manifest.yaml"
         )
-    if not isinstance(manifest, str):
+    path = entry.get("path", "")
+    if not isinstance(manifest, str) or not isinstance(path, str):
         return None
-    return catalog_type, name, repo, manifest
+    return catalog_type, name, repo, path, manifest
 
 
 def pull_request_base_ref() -> str:
@@ -624,7 +628,7 @@ def pull_request_base_ref() -> str:
     return os.environ.get("GITHUB_BASE_REF", "")
 
 
-def catalog_baseline_keys(catalog_path: Path) -> set[tuple[str, str, str, str]]:
+def catalog_baseline_keys(catalog_path: Path) -> set[tuple[str, str, str, str, str]]:
     """Load entries already accepted by the PR base, or current main build."""
     entries = read_catalog(catalog_path)
     if os.environ.get("GITHUB_EVENT_NAME") != "pull_request":
@@ -828,7 +832,8 @@ def robonix_contracts() -> tuple[set[str], set[str], tuple[str, ...]]:
         return _robonix_contracts
 
 
-def contract_problems(repo: str, branch: str, manifest: dict, manifest_path: str) -> list[dict]:
+def contract_problems(repo: str, branch: str, manifest: dict, manifest_path: str,
+                      path: str = "") -> list[dict]:
     """Capabilities that no contract defines.
 
     A capability is a contract id, robonix/<kind>/<namespace>/<interface>:
@@ -856,6 +861,8 @@ def contract_problems(repo: str, branch: str, manifest: dict, manifest_path: str
         return problems
 
     tree = load_remote_repository_tree(repo, branch)
+    prefix = f"{path}/" if path else ""
+    tree = {p[len(prefix):]: t for p, t in tree.items() if p.startswith(prefix)}
     base = posixpath.dirname(manifest_path)
     paths = {cap["name"]: posixpath.normpath(posixpath.join(base, cap["path"]))
              for cap in pending if isinstance(cap.get("path"), str)}
@@ -863,7 +870,7 @@ def contract_problems(repo: str, branch: str, manifest: dict, manifest_path: str
                         | {p for p in paths.values() if p in tree})
     local = {}
     for path in candidates:
-        contract = contract_of(raw_text(repo, branch, path))
+        contract = contract_of(raw_text(repo, branch, prefix + path))
         if contract:
             local.setdefault(contract["id"], (path, contract.get("idl")))
 
@@ -961,7 +968,10 @@ def canonical_github_repo(url: str) -> str:
     return f"https://github.com/{match.group(1).lower()}/{match.group(2).lower()}"
 
 
-def classify_deploy_dependency(dep: dict, catalog_repos: dict[str, str]) -> tuple[str, str, str]:
+def classify_deploy_dependency(
+    dep: dict,
+    catalog_packages: dict[tuple[str, str], str],
+) -> tuple[str, str, str]:
     """Return (resolution, package_name, warning) for one robot dependency."""
     repo = str(dep.get("repo") or "").strip()
     path = str(dep.get("path") or "").strip()
@@ -969,7 +979,7 @@ def classify_deploy_dependency(dep: dict, catalog_repos: dict[str, str]) -> tupl
 
     if repo:
         canonical_repo = canonical_github_repo(repo)
-        package_name = catalog_repos.get(canonical_repo, "") if canonical_repo else ""
+        package_name = catalog_packages.get((canonical_repo, ""), "") if canonical_repo else ""
         if package_name:
             return "catalog", package_name, ""
         if canonical_repo:
@@ -995,6 +1005,11 @@ def classify_deploy_dependency(dep: dict, catalog_repos: dict[str, str]) -> tupl
             "${ROBONIX_DEPLOY_DIR}/... for the boot deployment, or a repository-relative path.",
         )
     if ROBONIX_SOURCE_RE.match(path):
+        relative_path = ROBONIX_SOURCE_RE.sub("", path, count=1)
+        relative_path = posixpath.normpath(relative_path.replace("\\", "/"))
+        package_name = catalog_packages.get((ROBONIX_SOURCE_REPO, relative_path), "")
+        if package_name:
+            return "catalog", package_name, ""
         return "robonix_source", "", ""
     if ROBONIX_DEPLOY_RE.match(path):
         return "robonix_deploy", "", ""
@@ -1028,8 +1043,8 @@ def classify_deploy_dependency(dep: dict, catalog_repos: dict[str, str]) -> tupl
 
 
 def annotate_deploy_dependencies(packages: list[dict]) -> None:
-    catalog_repos = {
-        canonical_github_repo(package["repo"]): package["name"]
+    catalog_packages = {
+        (canonical_github_repo(package["repo"]), package.get("path", "")): package["name"]
         for package in packages
         if package.get("catalog_type") != "robot" and canonical_github_repo(package.get("repo", ""))
     }
@@ -1039,7 +1054,7 @@ def annotate_deploy_dependencies(packages: list[dict]) -> None:
             continue
         warnings = list(package.get("_source_warnings", []))
         for dep in package.get("deploy_dependencies", []):
-            resolution, dep_name, warning = classify_deploy_dependency(dep, catalog_repos)
+            resolution, dep_name, warning = classify_deploy_dependency(dep, catalog_packages)
             dep["resolution"] = resolution
             dep["package_name"] = dep_name
             dep["package_url"] = f"../{name_to_slug[dep_name]}/" if dep_name else ""
@@ -1066,7 +1081,9 @@ def dependency_repository_location(
     """Resolve a local dependency to (repo, branch, path, root description)."""
     path = str(dep.get("path") or "").strip()
     resolution = dep.get("resolution")
-    if resolution == "robonix_source":
+    if resolution == "robonix_source" or (
+        resolution == "catalog" and not dep.get("repo") and ROBONIX_SOURCE_RE.match(path)
+    ):
         relative_path = ROBONIX_SOURCE_RE.sub("", path, count=1)
         return (
             ROBONIX_SOURCE_REPO,
@@ -1105,7 +1122,7 @@ def validate_deploy_dependency_paths(packages: list[dict]) -> None:
         for dep in package.get("deploy_dependencies", []):
             if dep.get("resolution_warning"):
                 continue
-            if dep.get("resolution") == "robonix_source" and not source_branch:
+            if not dep.get("repo") and ROBONIX_SOURCE_RE.match(dep.get("path", "")) and not source_branch:
                 source_branch = load_remote_default_branch(ROBONIX_SOURCE_REPO)
             location = dependency_repository_location(package, dep, source_branch)
             if location is None:
@@ -1353,7 +1370,7 @@ def report_catalog_warnings(packages: list[dict]) -> int:
 
 def collect_entry(
     entry: dict,
-    baseline_keys: set[tuple[str, str, str, str]],
+    baseline_keys: set[tuple[str, str, str, str, str]],
 ) -> dict:
     """Fetch and validate one catalog entry into its rendered-page record.
 
@@ -1363,18 +1380,22 @@ def collect_entry(
     """
     name = entry["name"]
     repo = entry["repo"]
+    path = entry.get("path", "")
     _, repo_name = parse_repo(repo)
     manifest_path = entry.get("manifest")
     if manifest_path is None:
         manifest_path = "robonix_manifest.yaml" if name.startswith("robonix.robot.") else "package_manifest.yaml"
     if not isinstance(manifest_path, str) or not manifest_path.strip():
         fail(f"{name}: manifest must be a non-empty string")
+    if path and (posixpath.isabs(manifest_path) or "\\" in manifest_path
+                 or posixpath.normpath(manifest_path).split("/")[0] == ".."):
+        fail(f"{name}: manifest must stay inside the package directory")
     catalog_type = entry.get("_catalog_type") or ("robot" if manifest_path == "robonix_manifest.yaml" or name.startswith("robonix.robot.") else "package")
     allow_name_mismatch = catalog_entry_key(entry) in baseline_keys
     source_warnings = []
     cached = None
     try:
-        branch, manifest, readme = load_remote_manifest(repo, manifest_path)
+        branch, manifest, readme = load_remote_manifest(repo, manifest_path, path)
     except InvalidRemoteManifestError as error:
         if catalog_type != "robot":
             fail(f"{repo}: {error}")
@@ -1404,7 +1425,7 @@ def collect_entry(
                 ),
             }
         )
-    images = load_remote_images(repo, branch)
+    images = load_remote_images(repo, branch, path)
     promo_image_urls, icon_url = images["promo"], images["icon"]
     artwork_problems = images["problems"]
     # A new or changed entry fixes its artwork before it is merged; an entry
@@ -1476,7 +1497,7 @@ def collect_entry(
         root_caps = None
         if manifest_path != "package_manifest.yaml" and cached is None:
             owner, _ = parse_repo(repo)
-            raw = load_remote_text(owner, repo_name, "package_manifest.yaml", branch, required=False)
+            raw = load_remote_text(owner, repo_name, posixpath.join(path, "package_manifest.yaml"), branch, required=False)
             try:
                 root_manifest = yaml.safe_load(raw) if raw else None
             except yaml.YAMLError:
@@ -1485,7 +1506,7 @@ def collect_entry(
                 root_caps = collect_capabilities(name, root_manifest)
         problems = layout_problems(kind, cap_names, root_caps, manifest_path)
         if kind in KINDS:
-            problems += contract_problems(repo, branch, manifest, manifest_path)
+            problems += contract_problems(repo, branch, manifest, manifest_path, path)
     for problem in problems:
         # A new or changed entry has to fix this before it is merged; an
         # entry already in the catalog is listed with a warning.
@@ -1499,6 +1520,7 @@ def collect_entry(
         "license": license_name,
         "tags": tags,
         "repo": repo,
+        **({"path": path} if path else {}),
         "maintainers": maintainers,
         "repo_name": repo_name,
         "default_branch": branch,
@@ -1510,7 +1532,7 @@ def collect_entry(
         "capabilities": cap_names,
         "provides": group_capabilities(kind, cap_names),
         "deploy_dependencies": deploy_dependencies,
-        "readme_url": f"{repo}/blob/{branch}/README.md",
+        "readme_url": absolute_readme_url("README.md", repo, branch, raw=False, path=path),
         "promo_image_urls": promo_image_urls,
         "icon_url": icon_url,
         "preview_image_url": promo_image_urls[0] if promo_image_urls else "",
@@ -1524,11 +1546,11 @@ def collect_entry(
 def validate_catalog_entries(entries: list) -> list[dict]:
     """Check the shape of catalog.yaml before any network work starts.
 
-    Duplicate names and repos are cross-entry facts, so they are settled here
+    Duplicate names and (repo, path) pairs are cross-entry facts, settled here
     rather than inside the per-entry fetch that runs concurrently.
     """
     seen_names: set[str] = set()
-    seen_repos: set[str] = set()
+    seen_repos: set[tuple[str, str]] = set()
     checked = []
     for entry in entries:
         if not isinstance(entry, dict):
@@ -1539,19 +1561,27 @@ def validate_catalog_entries(entries: list) -> list[dict]:
             fail("catalog package entry missing name")
         if not isinstance(repo, str) or not repo.strip():
             fail(f"{name}: catalog package entry missing repo")
+        path = entry.get("path", "")
+        if "path" in entry:
+            if entry.get("_catalog_type") == "robot" or name.startswith("robonix.robot."):
+                fail(f"{name}: path is only supported for packages")
+            if not isinstance(path, str) or not path or path != path.strip() \
+                    or "\\" in path or WINDOWS_ABSOLUTE_RE.match(path) \
+                    or any(part in ("", ".", "..") for part in path.split("/")):
+                fail(f"{name}: path must be a directory inside repo, with no leading/trailing slash or dot segments")
         if name in seen_names:
             fail(f"duplicate package name in catalog.yaml: {name}")
-        if repo in seen_repos:
-            fail(f"duplicate repo in catalog.yaml: {repo}")
+        if (repo, path) in seen_repos:
+            fail(f"duplicate repo/path in catalog.yaml: {repo} {path}")
         seen_names.add(name)
-        seen_repos.add(repo)
+        seen_repos.add((repo, path))
         checked.append(entry)
     return checked
 
 
 def collect(
     catalog_path: Path,
-    baseline_keys: set[tuple[str, str, str, str]] | None = None,
+    baseline_keys: set[tuple[str, str, str, str, str]] | None = None,
 ) -> list[dict]:
     """Read catalog.yaml and fetch every listed repository.
 
@@ -2501,14 +2531,16 @@ def render_site(public_dir: Path, generated_at: str, packages: list[dict]) -> No
     render_api_viewer(public_dir, generated_at)
 
 
-def absolute_readme_url(value: str, repo_url: str, branch: str, *, raw: bool) -> str:
-    """Resolve a README-relative link against the indexed repository root."""
+def absolute_readme_url(value: str, repo_url: str, branch: str, *, raw: bool,
+                        path: str = "") -> str:
+    """Resolve a README-relative link against the indexed package directory."""
     value = html.unescape(value)
     parsed = urllib.parse.urlsplit(value)
     if parsed.scheme or parsed.netloc or value.startswith(("#", "//")):
         return value
     owner, repo = parse_repo(repo_url)
-    path = posixpath.normpath(parsed.path.lstrip("/"))
+    path = posixpath.normpath(posixpath.join(path, parsed.path))
+    path = path.lstrip("/")
     if path in ("", "."):
         path = "README.md"
     escaped_branch = urllib.parse.quote(branch, safe="")
@@ -2520,11 +2552,11 @@ def absolute_readme_url(value: str, repo_url: str, branch: str, *, raw: bool) ->
     return urllib.parse.urlunsplit(("", "", base, parsed.query, parsed.fragment))
 
 
-def rewrite_readme_urls(rendered: str, repo_url: str, branch: str) -> str:
+def rewrite_readme_urls(rendered: str, repo_url: str, branch: str, path: str = "") -> str:
     """Make repository-relative README images and links work on catalog pages."""
     def replace(pattern: str, source: str, *, raw: bool) -> str:
         def repl(match: re.Match) -> str:
-            resolved = absolute_readme_url(match.group(2), repo_url, branch, raw=raw)
+            resolved = absolute_readme_url(match.group(2), repo_url, branch, raw=raw, path=path)
             return match.group(1) + html.escape(resolved, quote=True) + match.group(3)
 
         return re.sub(pattern, repl, source, flags=re.IGNORECASE)
@@ -2563,7 +2595,7 @@ def enable_markdown_in_html_divs(md: str) -> str:
     return "".join(rendered_lines)
 
 
-def render_markdown(md: str, repo_url: str, branch: str) -> str:
+def render_markdown(md: str, repo_url: str, branch: str, path: str = "") -> str:
     if not md.strip():
         return "<p>No README.md was found in this package repository.</p>"
     rendered = markdown.markdown(
@@ -2577,7 +2609,7 @@ def render_markdown(md: str, repo_url: str, branch: str) -> str:
             }
         },
     )
-    rendered = rewrite_readme_urls(rendered, repo_url, branch)
+    rendered = rewrite_readme_urls(rendered, repo_url, branch, path)
     allowed_tags = set(bleach.sanitizer.ALLOWED_TAGS).union(
         {
             "div",
@@ -2740,12 +2772,19 @@ def render_package_pages(public_dir: Path, generated_at: str, packages: list[dic
         )
 
         readme_html = render_markdown(
-            p.get("_readme_markdown", ""), p["repo"], p["default_branch"]
+            p.get("_readme_markdown", ""), p["repo"], p["default_branch"], p.get("path", "")
         )
         api_href = f"../../api/view/?package={urllib.parse.quote(p['name'], safe='')}"
         # Same target as the readme_url field, derived here so rendering needs
         # only the repository and branch a page already shows.
-        readme_href = f"{p['repo']}/blob/{p['default_branch']}/README.md"
+        readme_href = absolute_readme_url(
+            "README.md", p["repo"], p["default_branch"], raw=False, path=p.get("path", "")
+        )
+        repo_href = p["repo"]
+        if p.get("path"):
+            branch = urllib.parse.quote(p["default_branch"], safe="")
+            path = urllib.parse.quote(p["path"], safe="/")
+            repo_href = f"{repo_href}/tree/{branch}/{path}"
         crumb_label = "Robots" if is_robot else "Packages"
 
         body = f"""    <div class="container-xxl">
@@ -2762,7 +2801,7 @@ def render_package_pages(public_dir: Path, generated_at: str, packages: list[dic
         <p class="detail-desc mt-3 mb-0">{html.escape(p['description'])}</p>
         {warning_block}
         <div class="d-flex flex-wrap gap-2 mt-4">
-          <a class="btn btn-primary" href="{html.escape(p['repo'])}">{ICON_GITHUB} View source</a>
+          <a class="btn btn-primary" href="{html.escape(repo_href)}">{ICON_GITHUB} View source</a>
           <a class="btn btn-outline-secondary" href="{html.escape(readme_href)}">Open README on GitHub</a>
           <a class="btn btn-outline-secondary" href="{api_href}">{ICON_JSON} JSON</a>
         </div>
@@ -2789,7 +2828,7 @@ def render_package_pages(public_dir: Path, generated_at: str, packages: list[dic
                   <dt>Version</dt><dd><code>{html.escape(p['version'])}</code></dd>
                   <dt>License</dt><dd><code>{html.escape(p['license'])}</code></dd>
                   <dt>Kind</dt><dd>{html.escape(kind_label(p['kind']))}</dd>
-                  <dt>Repository</dt><dd><a href="{html.escape(p['repo'])}">{html.escape(p['repo_name'])}</a></dd>
+                  <dt>Repository</dt><dd><a href="{html.escape(repo_href)}">{html.escape(p['repo_name'])}</a></dd>
                   <dt>Branch</dt><dd><code>{html.escape(p['default_branch'])}</code></dd>
                   <dt>Manifest</dt><dd><code>{html.escape(p['manifest'])}</code></dd>
                   <dt>Maintainers</dt><dd>{html.escape(maintainer_names(p))}</dd>
