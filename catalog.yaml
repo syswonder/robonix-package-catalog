@@ -128,10 +128,12 @@ packages:
     repo: https://github.com/1020559180/primitive-dji-msdk-flight-rbnx
   - name: robonix.service.fire_detect
     repo: https://github.com/1020559180/service-fire-detect-rbnx
-  - name: robonix.primitive.jaka.arm
-    repo: https://github.com/syswonder/primitive-jaka-mini-arm-rbnx
-  - name: robonix.skill.jaka
-    repo: https://github.com/syswonder/skill-jaka-rbnx
+  - name: robonix.primitive.jaka.mini.arm_gripper
+    repo: https://github.com/syswonder/primitive-jaka-mini_with_tg9801_gripper-arm_gripper-rbnx
+  - name: robonix.primitive.jaka.mini.arm_hand
+    repo: https://github.com/syswonder/primitive-jaka-mini_with_linker_hand_o6-arm_hand-rbnx
+  - name: robonix.skill.jaka_grasp
+    repo: https://github.com/syswonder/skill-jaka-grasp-rbnx
   - name: robonix.primitive.orbbec.camera
     repo: https://github.com/syswonder/primitive-orbbec-camera-rbnx
   - name: robonix.primitive.linkerhand.o6.hand
@@ -181,7 +183,9 @@ robots:
     repo: https://github.com/syswonder/robot-agilex-ranger_with_piper_mujoco
   - name: robonix.robot.aubo.i5h
     repo: https://github.com/syswonder/robot-aubo-i5h
-  - name: robonix.robot.jaka.mini
-    repo: https://github.com/syswonder/robot-jaka-mini
+  - name: robonix.robot.jaka.mini_with_tg9801_gripper
+    repo: https://github.com/syswonder/robot-jaka-mini_with_tg9801_gripper
+  - name: robonix.robot.jaka.mini_with_linker_hand_o6
+    repo: https://github.com/syswonder/robot-jaka-mini_with_linker_hand_o6
   - name: robonix.robot.agilex.piper_linkerhand_mujoco
     repo: https://github.com/syswonder/robot-agilex-piper_with_linkerhand_mujoco
