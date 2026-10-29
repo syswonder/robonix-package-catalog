@@ -145,6 +145,8 @@ packages:
   - name: robonix.primitive.deep_robotics.lynx_s10.lidar
     repo: https://github.com/syswonder/primitive-deep_robotics-lynx_s10-lidar-rbnx
 robots:
+  - name: robonix.robot.agilex.piper_rk3588
+    repo: https://github.com/syswonder/robot-agilex-piper-rk3588
   - name: robonix.robot.mirrorme.bpx
     repo: https://github.com/mirrormerobotics/robot-mirrorme-bpx
   - name: robonix.robot.deep_robotics.lynx_s10
