@@ -148,6 +148,8 @@ packages:
     repo: https://github.com/syswonder/primitive-deep_robotics-lynx_s10-lidar-rbnx
   - name: robonix.skill.qmzs.grasp
     repo: https://github.com/syswonder/skill-qmzs-grasp-rbnx
+  - name: robonix.skill.wrist_vlm_grasp
+    repo: https://github.com/syswonder/skill-wrist-vlm-grasp-rbnx
   - name: robonix.primitive.qmzs.arm7aix.arm
     repo: https://github.com/syswonder/primitive-qmzs-arm7aix-rbnx
 robots:
@@ -195,6 +197,8 @@ robots:
     repo: https://github.com/syswonder/robot-jaka-mini_with_linker_hand_o6
   - name: robonix.robot.agilex.piper_linkerhand_mujoco
     repo: https://github.com/syswonder/robot-agilex-piper_with_linkerhand_mujoco
+  - name: robonix.robot.unitree.go2w
+    repo: https://github.com/syswonder/robot-unitree-go2w.git
   - name: robonix.robot.agilex.ranger_mini_v3.internvln
     repo: https://github.com/syswonder/skill-agilex-ranger-vln-rbnx
   - name: robonix.robot.agilex.ranger_mini_v3.follow
