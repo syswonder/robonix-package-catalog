@@ -192,4 +192,4 @@ robots:
   - name: robonix.robot.agilex.piper_linkerhand_mujoco
     repo: https://github.com/syswonder/robot-agilex-piper_with_linkerhand_mujoco
   - name: robonix.robot.unitree.go2w
-    repo: https://github.com/LittleRookie1115/robot-unitree-go2w
+    repo: https://github.com/syswonder/robot-unitree-go2w.git
