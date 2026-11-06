@@ -146,6 +146,8 @@ packages:
     repo: https://github.com/syswonder/primitive-deep_robotics-lynx_s10-camera-rbnx
   - name: robonix.primitive.deep_robotics.lynx_s10.lidar
     repo: https://github.com/syswonder/primitive-deep_robotics-lynx_s10-lidar-rbnx
+  - name: robonix.skill.wrist_vlm_grasp
+    repo: https://github.com/syswonder/skill-wrist-vlm-grasp-rbnx
   - name: robonix.primitive.qmzs.arm7aix.arm
     repo: https://github.com/syswonder/primitive-qmzs-arm7aix-rbnx
 robots:
