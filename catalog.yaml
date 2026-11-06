@@ -146,6 +146,8 @@ packages:
     repo: https://github.com/syswonder/primitive-deep_robotics-lynx_s10-camera-rbnx
   - name: robonix.primitive.deep_robotics.lynx_s10.lidar
     repo: https://github.com/syswonder/primitive-deep_robotics-lynx_s10-lidar-rbnx
+  - name: robonix.primitive.qmzs.arm7aix.arm
+    repo: https://github.com/syswonder/primitive-qmzs-arm7aix-rbnx
 robots:
   - name: robonix.robot.agilex.piper_rk3588
     repo: https://github.com/syswonder/robot-agilex-piper-rk3588
