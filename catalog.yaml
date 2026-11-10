@@ -152,6 +152,10 @@ packages:
     repo: https://github.com/syswonder/skill-wrist-vlm-grasp-rbnx
   - name: robonix.primitive.qmzs.arm7aix.arm
     repo: https://github.com/syswonder/primitive-qmzs-arm7aix-rbnx
+  - name: robonix.service.grasp_geometry
+    repo: https://github.com/syswonder/service-grasp-geometry-rbnx
+  - name: robonix.skill.pick.depth_grasp
+    repo: https://github.com/syswonder/skill-pick-depth-grasp-rbnx
 robots:
   - name: robonix.robot.agilex.piper_rk3588
     repo: https://github.com/syswonder/robot-agilex-piper-rk3588
