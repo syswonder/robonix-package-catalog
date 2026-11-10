@@ -203,3 +203,5 @@ robots:
     repo: https://github.com/syswonder/skill-agilex-ranger-vln-rbnx
   - name: robonix.robot.agilex.ranger_mini_v3.follow
     repo: https://github.com/syswonder/skill-follow-person-rbnx
+  - name: robonix.robot.unitree.r1
+    repo: https://github.com/syswonder/robot-unitree-r1
