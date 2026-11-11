@@ -1,4 +1,10 @@
 packages:
+  - name: robonix.primitive.dobot.nova5.arm
+    repo: https://github.com/mikequ95/primitive-dobot-nova5-arm-rbnx
+  - name: robonix.primitive.dobot.nova5.camera
+    repo: https://github.com/mikequ95/primitive-dobot-nova5-camera-rbnx
+  - name: robonix.skill.dobot.nova5.pick_return
+    repo: https://github.com/mikequ95/skill-nova5-pick-return-rbnx
   - name: robonix.service.memgraph
     repo: https://github.com/syswonder/robonix
     path: services/memory
@@ -157,6 +163,8 @@ packages:
   - name: robonix.skill.pick.depth_grasp
     repo: https://github.com/syswonder/skill-pick-depth-grasp-rbnx
 robots:
+  - name: robonix.robot.dobot.nova5
+    repo: https://github.com/mikequ95/robot-dobot-nova5
   - name: robonix.robot.agilex.piper_rk3588
     repo: https://github.com/syswonder/robot-agilex-piper-rk3588
   - name: robonix.robot.mirrorme.bpx
