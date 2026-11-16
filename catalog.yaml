@@ -213,3 +213,5 @@ robots:
     repo: https://github.com/syswonder/robot-unitree-go2w.git
   - name: robonix.robot.unitree.r1
     repo: https://github.com/syswonder/robot-unitree-r1
+  - name: robonix.robot.qmzs.arm7aix
+    repo: https://github.com/syswonder/robot-qmzs-arm7aix
