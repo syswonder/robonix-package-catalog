@@ -168,7 +168,7 @@ packages:
     repo: https://github.com/syswonder/skill-pick-depth-grasp-rbnx
 robots:
   - name: robonix.robot.dobot.nova5
-    repo: https://github.com/mikequ95/robot-dobot-nova5
+    repo: https://github.com/syswonder/robot-dobot-nova5
   - name: robonix.robot.agilex.piper_rk3588
     repo: https://github.com/syswonder/robot-agilex-piper-rk3588
   - name: robonix.robot.mirrorme.bpx
@@ -219,3 +219,5 @@ robots:
     repo: https://github.com/syswonder/robot-unitree-r1
   - name: robonix.robot.jaka.lumi_with_tg9801_gripper
     repo: https://github.com/syswonder/robot-jaka-lumi_with_tg9801_gripper
+  - name: robonix.robot.qmzs.arm7aix
+    repo: https://github.com/syswonder/robot-qmzs-arm7aix
