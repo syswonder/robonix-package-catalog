@@ -221,3 +221,5 @@ robots:
     repo: https://github.com/syswonder/robot-jaka-lumi_with_tg9801_gripper
   - name: robonix.robot.qmzs.arm7aix
     repo: https://github.com/syswonder/robot-qmzs-arm7aix
+  - name: robonix.robot.cyanroot.nianzhu_1y
+    repo: https://github.com/syswonder/robot-cyanroot-nianzhu_1y
