@@ -167,6 +167,8 @@ packages:
   - name: robonix.primitive.deep_robotics.lynx_s10.quadruped
     repo: https://github.com/syswonder/primitive-deep_robotics-lynx_s10-quadruped-rbnx
 robots:
+  - name: robonix.robot.dobot.nova2
+    repo: https://github.com/syswonder/robot-dobot-nova2
   - name: robonix.robot.dobot.nova5
     repo: https://github.com/syswonder/robot-dobot-nova5
   - name: robonix.robot.agilex.piper_rk3588
