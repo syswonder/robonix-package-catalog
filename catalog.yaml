@@ -166,6 +166,8 @@ packages:
     repo: https://github.com/syswonder/skill-pick-depth-grasp-rbnx
   - name: robonix.primitive.deep_robotics.lynx_s10.quadruped
     repo: https://github.com/syswonder/primitive-deep_robotics-lynx_s10-quadruped-rbnx
+  - name: robonix.skill.rgbd_target_navigation
+    repo: https://github.com/Wittteee/RosMasterX3_Robonix_Internship
 robots:
   - name: robonix.robot.dobot.nova2
     repo: https://github.com/syswonder/robot-dobot-nova2
