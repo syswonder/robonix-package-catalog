@@ -51,6 +51,8 @@ packages:
     repo: https://github.com/syswonder/primitive-robot-description-rbnx
   - name: robonix.primitive.yahboom.rosmaster_x3.safe_move
     repo: https://github.com/luoyg0831-a11y/robonix-rosmaster-x3-safe-move
+  - name: robonix.skill.rgbd_target_navigation
+    repo: https://github.com/Wittteee/RosMasterX3_Robonix_Internship
   - name: robonix.service.mapping
     repo: https://github.com/syswonder/service-map-rbnx
   - name: robonix.service.navigation
