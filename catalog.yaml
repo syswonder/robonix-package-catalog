@@ -166,6 +166,13 @@ packages:
     repo: https://github.com/syswonder/skill-pick-depth-grasp-rbnx
   - name: robonix.primitive.deep_robotics.lynx_s10.quadruped
     repo: https://github.com/syswonder/primitive-deep_robotics-lynx_s10-quadruped-rbnx
+  - name: robonix.primitive.hdu.cartesian.plotter
+    repo: https://github.com/syswonder/primitive-hdu-cartesian-plotter-rbnx
+  - name: robonix.skill.hdu.text
+    repo: https://github.com/syswonder/skill-hdu-text-rbnx
+  - name: robonix.skill.hdu.draw
+    repo: https://github.com/syswonder/skill-hdu-draw-rbnx
+    
 robots:
   - name: robonix.robot.dobot.nova2
     repo: https://github.com/syswonder/robot-dobot-nova2
@@ -225,3 +232,5 @@ robots:
     repo: https://github.com/syswonder/robot-qmzs-arm7aix
   - name: robonix.robot.cyanroot.nianzhu_1y
     repo: https://github.com/syswonder/robot-cyanroot-nianzhu_1y
+  - name: robonix.robot.hdu.cartesian
+    repo: https://github.com/syswonder/robot-hdu-cartesian
