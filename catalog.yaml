@@ -166,6 +166,14 @@ packages:
     repo: https://github.com/syswonder/skill-pick-depth-grasp-rbnx
   - name: robonix.primitive.deep_robotics.lynx_s10.quadruped
     repo: https://github.com/syswonder/primitive-deep_robotics-lynx_s10-quadruped-rbnx
+  - name: robonix.primitive.aubo.i_series.arm
+    repo: https://github.com/syswonder/primitive-aubo-i_series-arm-rbnx
+  - name: robonix.primitive.hikrobot.mv.camera
+    repo: https://github.com/syswonder/primitive-hikrobot-mv-camera-rbnx
+  - name: robonix.primitive.jodell.rg.gripper
+    repo: https://github.com/syswonder/primitive-jodell-rg-gripper-rbnx
+  - name: robonix.skill.fruit_pick
+    repo: https://github.com/syswonder/skill-fruit_pick-rbnx
 robots:
   - name: robonix.robot.dobot.nova2
     repo: https://github.com/syswonder/robot-dobot-nova2
@@ -225,3 +233,5 @@ robots:
     repo: https://github.com/syswonder/robot-qmzs-arm7aix
   - name: robonix.robot.cyanroot.nianzhu_1y
     repo: https://github.com/syswonder/robot-cyanroot-nianzhu_1y
+  - name: robonix.robot.aubo.i10h_b0
+    repo: https://github.com/syswonder/robot-aubo-i10h_b0
