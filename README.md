@@ -184,7 +184,7 @@ The `package.name` in `package_manifest.yaml` must exactly match the name in
 
 Each `capabilities[].name` is a contract id under `robonix/<kind>/`, and the
 kind is the package's own: a package provides primitives, services or skills,
-never a mix. The contract is either one of Robonix's (`capabilities/` in
+at least one and never a mix. The contract is either one of Robonix's (`capabilities/` in
 `syswonder/robonix`) or defined in the package by a TOML under `capabilities/`
 with a `[contract]` table, whose IDL sits in `capabilities/lib/`. A new or
 changed entry that breaks these rules fails CI; an entry already in the

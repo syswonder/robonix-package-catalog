@@ -774,8 +774,8 @@ def layout_problems(kind: str, cap_names: list[str], root_caps: list[str] | None
                     manifest_path: str) -> list[dict]:
     """How a package's contracts break the one-kind-per-package layout.
 
-    A package is of one kind, named by its catalog name, and may provide any
-    number of that kind, one contract namespace each: seven Go2 action skills,
+    A package is of one kind, named by its catalog name, and provides at
+    least one of that kind, any number of them, one contract namespace each: seven Go2 action skills,
     or the chassis and IMU one driver board reports. It must not mix kinds; a
     service a skill needs is a package of its own. When the catalog reads a manifest other
     than package_manifest.yaml, both must declare the same capabilities, or
@@ -785,6 +785,11 @@ def layout_problems(kind: str, cap_names: list[str], root_caps: list[str] | None
     problems = []
     if kind not in KINDS:
         return problems
+    if not any(c.split("/")[1:2] == [kind] for c in cap_names):
+        problems.append({
+            "type": "no_capabilities",
+            "reason": f"declares no robonix/{kind}/ capability; a {kind} package must provide at least one",
+        })
     # Both manifests: a service left out of the catalog's manifest is still
     # in the package.
     declared = set(cap_names) | set(root_caps or [])

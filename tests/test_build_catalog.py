@@ -627,9 +627,11 @@ class PackagePathTests(unittest.TestCase):
                             self.assertFalse(required)
                             return readme
                         self.assertIn(file, (prefix + manifest, prefix + "package_manifest.yaml"))
-                        return BUILD_CATALOG.yaml.safe_dump({"package": self.META, "capabilities": []})
+                        return BUILD_CATALOG.yaml.safe_dump({"package": self.META, "capabilities": [
+                            {"name": "robonix/service/memory/query", "transport": "grpc"}]})
 
                     with mock.patch.object(BUILD_CATALOG, "github_json", return_value={"default_branch": "dev"}), \
+                            mock.patch.object(BUILD_CATALOG, "contract_problems", return_value=[]), \
                             mock.patch.object(BUILD_CATALOG, "load_remote_text", side_effect=read) as load, \
                             mock.patch.object(BUILD_CATALOG, "load_remote_images",
                                               return_value={"promo": [], "icon": "", "problems": [], "data": {}}) as images:
@@ -1315,6 +1317,11 @@ class LayoutProblemsTest(unittest.TestCase):
         for kind in ("skill", "service", "primitive"):
             caps = [f"robonix/{kind}/a/execute", f"robonix/{kind}/b/execute"]
             self.assertEqual(BUILD_CATALOG.layout_problems(kind, caps, None, "package_manifest.yaml"), [])
+
+    def test_a_package_must_provide_its_own_kind(self):
+        for caps in ([], ["robonix/lifecycle/driver"]):
+            problems = BUILD_CATALOG.layout_problems("skill", caps, None, "package_manifest.yaml")
+            self.assertEqual([p["type"] for p in problems], ["no_capabilities"])
 
     def test_catalog_manifest_must_match_the_package_manifest(self):
         caps = ["robonix/skill/a/execute"]
