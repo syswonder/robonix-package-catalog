@@ -127,7 +127,6 @@ packages:
     repo: https://github.com/QingFeng34048/Robonix-Skill-dataset_convert
   - name: robonix.skill.adaptive_fine-tuning_for_deployment
     repo: https://github.com/QingFeng34048/Robonix-Skill-openvla_finetune
-
   - name: robonix.primitive.dji.msdk.flight
     repo: https://github.com/1020559180/primitive-dji-msdk-flight-rbnx
   - name: robonix.service.fire_detect
@@ -180,7 +179,6 @@ packages:
     repo: https://github.com/syswonder/skill-write_text-rbnx
   - name: robonix.skill.draw
     repo: https://github.com/syswonder/skill-draw-rbnx
-
 robots:
   - name: robonix.robot.dobot.nova2
     repo: https://github.com/syswonder/robot-dobot-nova2
@@ -244,4 +242,3 @@ robots:
     repo: https://github.com/syswonder/robot-aubo-i10h_b0
   - name: robonix.robot.hdu.cartesian
     repo: https://github.com/syswonder/robot-hdu-cartesian
-
