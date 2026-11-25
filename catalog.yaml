@@ -174,6 +174,13 @@ packages:
     repo: https://github.com/syswonder/primitive-jodell-rg-gripper-rbnx
   - name: robonix.skill.fruit_pick
     repo: https://github.com/syswonder/skill-fruit_pick-rbnx
+  - name: robonix.primitive.hdu.cartesian.plotter
+    repo: https://github.com/syswonder/primitive-hdu-cartesian-plotter-rbnx
+  - name: robonix.skill.write_text
+    repo: https://github.com/syswonder/skill-write_text-rbnx
+  - name: robonix.skill.draw
+    repo: https://github.com/syswonder/skill-draw-rbnx
+
 robots:
   - name: robonix.robot.dobot.nova2
     repo: https://github.com/syswonder/robot-dobot-nova2
@@ -235,3 +242,6 @@ robots:
     repo: https://github.com/syswonder/robot-cyanroot-nianzhu_1y
   - name: robonix.robot.aubo.i10h_b0
     repo: https://github.com/syswonder/robot-aubo-i10h_b0
+  - name: robonix.robot.hdu.cartesian
+    repo: https://github.com/syswonder/robot-hdu-cartesian
+
