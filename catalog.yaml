@@ -16,6 +16,8 @@ packages:
     path: services/speech
   - name: robonix.service.voiceprint
     repo: https://github.com/syswonder/robonix
+  - name: robonix.service.voice_nav
+    repo: https://github.com/ppl3326/robonix-voice-nav
     path: services/voiceprint
   - name: robonix.service.scene_verifier
     repo: https://github.com/syswonder/robonix
